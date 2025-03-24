@@ -16,6 +16,10 @@ class PDFExtractorApp:
         self.rect_coords_title = None
         self.pdf_document = None
         self.scale_factor = 1.0  # Increased scale factor to improve text extraction
+        
+        # Crosshair lines
+        self.h_line = None
+        self.v_line = None
 
         # Frame for buttons
         self.button_frame = Frame(root)
@@ -45,6 +49,9 @@ class PDFExtractorApp:
         self.canvas.bind("<Button-1>", self.start_draw)
         self.canvas.bind("<B1-Motion>", self.draw_rect)
         self.canvas.bind("<ButtonRelease-1>", self.end_draw)
+        self.canvas.bind("<Motion>", self.update_crosshair)
+        self.canvas.bind("<Enter>", self.show_crosshair)
+        self.canvas.bind("<Leave>", self.hide_crosshair)
         
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind_all("<Shift-MouseWheel>", self._on_shift_mousewheel)
@@ -54,6 +61,57 @@ class PDFExtractorApp:
         self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
         self.scrollbar_y.lift(self.canvas)
         self.scrollbar_x.lift(self.canvas)
+
+    def show_crosshair(self, event):
+        """Show the crosshair when mouse enters the canvas"""
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        self.create_crosshair(x, y)
+
+    def hide_crosshair(self, event):
+        """Hide the crosshair when mouse leaves the canvas"""
+        if self.h_line:
+            self.canvas.delete(self.h_line)
+            self.h_line = None
+        if self.v_line:
+            self.canvas.delete(self.v_line)
+            self.v_line = None
+
+    def create_crosshair(self, x, y):
+        """Create crosshair lines at the given coordinates"""
+        # Get the scrollable region of the canvas
+        bbox = self.canvas.bbox(tk.ALL)
+        if not bbox:
+            # If canvas is empty, use canvas width and height
+            width = self.canvas.winfo_width()
+            height = self.canvas.winfo_height()
+            left, top = 0, 0
+            right, bottom = width, height
+        else:
+            left, top, right, bottom = bbox
+
+        # Delete existing lines if they exist
+        if self.h_line:
+            self.canvas.delete(self.h_line)
+        if self.v_line:
+            self.canvas.delete(self.v_line)
+        
+        # Create new lines spanning the entire canvas
+        self.h_line = self.canvas.create_line(left, y, right, y, fill="blue", dash=(4, 4))
+        self.v_line = self.canvas.create_line(x, top, x, bottom, fill="blue", dash=(4, 4))
+        
+        # Keep crosshair on top (but rectangle above crosshair if drawing)
+        self.canvas.tag_raise(self.h_line)
+        self.canvas.tag_raise(self.v_line)
+        # Ensure rectangle remains visible above crosshair during drawing
+        if hasattr(self, 'rect') and self.rect:
+            self.canvas.tag_raise(self.rect)
+
+    def update_crosshair(self, event):
+        """Update the crosshair position as the mouse moves"""
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        self.create_crosshair(x, y)
 
     def upload_pdf(self):
         self.pdf_path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
@@ -110,11 +168,19 @@ class PDFExtractorApp:
         self.start_x = self.canvas.canvasx(event.x)
         self.start_y = self.canvas.canvasy(event.y)
         self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline="red")
+        # Update crosshair at start position
+        self.update_crosshair(event)
 
     def draw_rect(self, event):
         current_x = self.canvas.canvasx(event.x)
         current_y = self.canvas.canvasy(event.y)
         self.canvas.coords(self.rect, self.start_x, self.start_y, current_x, current_y)
+        
+        # Update crosshair position during dragging
+        self.update_crosshair(event)
+        
+        # Keep rectangle visible above crosshair
+        self.canvas.tag_raise(self.rect)
 
     def end_draw(self, event):
         end_x = self.canvas.canvasx(event.x)
@@ -307,9 +373,12 @@ class PDFExtractorApp:
             var.set(0)
 
     def check_drawings_by_letter(self, letter):
-        for var, checkbutton in zip(self.check_vars, self.checkbuttons):
-            if checkbutton.cget("text").startswith(letter):
-                var.set(1)
+        # Fix to check drawings based on the entry text instead of checkbutton text
+        for i, entry_number in enumerate(self.entries_number):
+            sheet_number = entry_number.get().strip()
+            # Check if the sheet number starts with the specified letter (case insensitive)
+            if sheet_number and sheet_number.upper().startswith(letter):
+                self.check_vars[i].set(1)
 
     def save_sheets(self, with_title):
         if not any(var.get() for var in self.check_vars):
