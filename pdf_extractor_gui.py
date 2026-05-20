@@ -5,71 +5,105 @@ from PIL import Image, ImageTk
 import os
 import re
 
+
 class PDFExtractorApp:
     def __init__(self, root):
         self.root = root
         self.root.title("PDF Sheet Extractor")
-        
+        self.root.geometry("1200x780")
+        self.root.configure(bg="#f3f6fb")
+
         self.pdf_path = ""
         self.page_number = 1
         self.rect_coords_number = None
         self.rect_coords_title = None
         self.pdf_document = None
-        self.scale_factor = 1.0  # Increased scale factor to improve text extraction
-        
-        # Crosshair lines
+        self.scale_factor = 1.0
+
+        self.draw_phase = None
+        self.pending_number_box = None
+        self.retry_indices = []
+        self.active_retry_indices = []
+
         self.h_line = None
         self.v_line = None
 
-        # Frame for buttons
-        self.button_frame = Frame(root)
-        self.button_frame.pack(fill=tk.X)
-        
-        self.upload_button = Button(self.button_frame, text="Upload PDF", command=self.upload_pdf)
-        self.upload_button.pack(side=tk.LEFT)
-        
-        self.next_button = Button(self.button_frame, text="Next Drawing", command=self.next_drawing)
+        self.status_text = tk.StringVar(value="Upload a PDF to begin.")
+
+        self.button_frame = Frame(root, bg="#ffffff", padx=10, pady=10)
+        self.button_frame.pack(fill=tk.X, padx=10, pady=(10, 4))
+
+        self.upload_button = Button(
+            self.button_frame,
+            text="Upload PDF",
+            command=self.upload_pdf,
+            bg="#2563eb",
+            fg="white",
+            activebackground="#1d4ed8",
+            activeforeground="white",
+            relief=tk.FLAT,
+            padx=14,
+            pady=8,
+        )
+        self.upload_button.pack(side=tk.LEFT, padx=(0, 8))
+
+        self.next_button = Button(
+            self.button_frame,
+            text="Next Drawing",
+            command=self.next_drawing,
+            bg="#e5e7eb",
+            fg="#111827",
+            relief=tk.FLAT,
+            padx=14,
+            pady=8,
+        )
         self.next_button.pack(side=tk.LEFT)
-        
-        # Frame for canvas with scrollbars
-        self.canvas_frame = Frame(root)
-        self.canvas_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.canvas = Canvas(self.canvas_frame, bg="white")
+
+        self.status_label = Label(
+            root,
+            textvariable=self.status_text,
+            anchor="w",
+            bg="#eff6ff",
+            fg="#1e3a8a",
+            font=("Segoe UI", 11, "bold"),
+            padx=12,
+            pady=8,
+        )
+        self.status_label.pack(fill=tk.X, padx=10, pady=(0, 8))
+
+        self.canvas_frame = Frame(root, bg="#dbeafe", bd=1, relief=tk.SOLID)
+        self.canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        self.canvas = Canvas(self.canvas_frame, bg="#ffffff", highlightthickness=0)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
+
         self.scrollbar_y = Scrollbar(self.canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
         self.scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
-        
+
         self.scrollbar_x = Scrollbar(root, orient=tk.HORIZONTAL, command=self.canvas.xview)
-        self.scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X)
-        
+        self.scrollbar_x.pack(side=tk.BOTTOM, fill=tk.X, padx=10)
+
         self.canvas.config(yscrollcommand=self.scrollbar_y.set, xscrollcommand=self.scrollbar_x.set)
-        
+
         self.canvas.bind("<Button-1>", self.start_draw)
         self.canvas.bind("<B1-Motion>", self.draw_rect)
         self.canvas.bind("<ButtonRelease-1>", self.end_draw)
         self.canvas.bind("<Motion>", self.update_crosshair)
         self.canvas.bind("<Enter>", self.show_crosshair)
         self.canvas.bind("<Leave>", self.hide_crosshair)
-        
+
         self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
         self.canvas.bind_all("<Shift-MouseWheel>", self._on_shift_mousewheel)
 
-        # Ensure scrollbars are always visible and span the entire canvas
-        self.root.update_idletasks()
-        self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
-        self.scrollbar_y.lift(self.canvas)
-        self.scrollbar_x.lift(self.canvas)
+    def set_status(self, text):
+        self.status_text.set(text)
 
     def show_crosshair(self, event):
-        """Show the crosshair when mouse enters the canvas"""
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         self.create_crosshair(x, y)
 
     def hide_crosshair(self, event):
-        """Hide the crosshair when mouse leaves the canvas"""
         if self.h_line:
             self.canvas.delete(self.h_line)
             self.h_line = None
@@ -78,11 +112,8 @@ class PDFExtractorApp:
             self.v_line = None
 
     def create_crosshair(self, x, y):
-        """Create crosshair lines at the given coordinates"""
-        # Get the scrollable region of the canvas
         bbox = self.canvas.bbox(tk.ALL)
         if not bbox:
-            # If canvas is empty, use canvas width and height
             width = self.canvas.winfo_width()
             height = self.canvas.winfo_height()
             left, top = 0, 0
@@ -90,25 +121,19 @@ class PDFExtractorApp:
         else:
             left, top, right, bottom = bbox
 
-        # Delete existing lines if they exist
         if self.h_line:
             self.canvas.delete(self.h_line)
         if self.v_line:
             self.canvas.delete(self.v_line)
-        
-        # Create new lines spanning the entire canvas
-        self.h_line = self.canvas.create_line(left, y, right, y, fill="blue", dash=(4, 4))
-        self.v_line = self.canvas.create_line(x, top, x, bottom, fill="blue", dash=(4, 4))
-        
-        # Keep crosshair on top (but rectangle above crosshair if drawing)
+
+        self.h_line = self.canvas.create_line(left, y, right, y, fill="#2563eb", dash=(4, 4))
+        self.v_line = self.canvas.create_line(x, top, x, bottom, fill="#2563eb", dash=(4, 4))
         self.canvas.tag_raise(self.h_line)
         self.canvas.tag_raise(self.v_line)
-        # Ensure rectangle remains visible above crosshair during drawing
-        if hasattr(self, 'rect') and self.rect:
+        if hasattr(self, "rect") and self.rect:
             self.canvas.tag_raise(self.rect)
 
     def update_crosshair(self, event):
-        """Update the crosshair position as the mouse moves"""
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         self.create_crosshair(x, y)
@@ -117,25 +142,16 @@ class PDFExtractorApp:
         self.pdf_path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
         if self.pdf_path:
             self.page_number = 1
+            self.rect_coords_number = None
+            self.rect_coords_title = None
+            self.draw_phase = "number"
             self.load_first_page()
-            # Show popup window with instruction
-            self.show_instruction_popup()
+            self.set_status("Draw a box around the sheet number")
 
     def next_drawing(self):
         if self.pdf_document and self.page_number < len(self.pdf_document):
             self.page_number += 1
             self.display_page(self.page_number - 1)
-
-    def show_instruction_popup(self):
-        instruction_popup = Toplevel(self.root)
-        instruction_popup.title("Instruction")
-        instruction_popup.geometry("300x100")
-        
-        label = Label(instruction_popup, text="Draw a box around the sheet number")
-        label.pack(pady=20)
-        
-        ok_button = Button(instruction_popup, text="Ok", command=instruction_popup.destroy)
-        ok_button.pack()
 
     def load_first_page(self):
         self.pdf_document = fitz.open(self.pdf_path)
@@ -143,74 +159,52 @@ class PDFExtractorApp:
 
     def display_page(self, page_index):
         page = self.pdf_document.load_page(page_index)
-        
-        # Scale the page to the desired size
-        zoom = self.scale_factor
-        mat = fitz.Matrix(zoom, zoom)
-        pix = page.get_pixmap(matrix=mat)
-        
+        pix = page.get_pixmap(matrix=fitz.Matrix(self.scale_factor, self.scale_factor))
         img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        
+
         self.img_tk = ImageTk.PhotoImage(img)
+        self.canvas.delete("all")
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.img_tk)
-        
         self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
-        self.canvas.config(width=self.canvas_frame.winfo_width(), height=self.canvas_frame.winfo_height())
-
-        # Ensure scrollbars remain visible and span the entire canvas
-        self.scrollbar_y.lift(self.canvas)
-        self.scrollbar_x.lift(self.canvas)
-
-        # Debug information about the page
-        print(f"Page size: {page.rect}")
 
     def start_draw(self, event):
+        if not self.pdf_document or not self.draw_phase:
+            return
         self.start_x = self.canvas.canvasx(event.x)
         self.start_y = self.canvas.canvasy(event.y)
-        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline="red")
-        # Update crosshair at start position
+        self.rect = self.canvas.create_rectangle(self.start_x, self.start_y, self.start_x, self.start_y, outline="#dc2626", width=2)
         self.update_crosshair(event)
 
     def draw_rect(self, event):
+        if not self.pdf_document or not hasattr(self, "rect"):
+            return
         current_x = self.canvas.canvasx(event.x)
         current_y = self.canvas.canvasy(event.y)
         self.canvas.coords(self.rect, self.start_x, self.start_y, current_x, current_y)
-        
-        # Update crosshair position during dragging
         self.update_crosshair(event)
-        
-        # Keep rectangle visible above crosshair
         self.canvas.tag_raise(self.rect)
 
     def end_draw(self, event):
+        if not self.pdf_document or not self.draw_phase:
+            return
         end_x = self.canvas.canvasx(event.x)
         end_y = self.canvas.canvasy(event.y)
-        if self.rect_coords_number is None:
-            # First box drawn around the sheet number
-            self.rect_coords_number = (self.start_x, self.start_y, end_x, end_y)
-            print(f"Selection box coordinates for number (scaled): {self.rect_coords_number}")
+        new_box = (self.start_x, self.start_y, end_x, end_y)
 
-            # Extract text from the selected area
-            scaled_rect_coords = [coord / self.scale_factor for coord in self.rect_coords_number]
+        if self.draw_phase == "number":
+            self.pending_number_box = new_box
+            scaled_rect_coords = [coord / self.scale_factor for coord in new_box]
             extracted_text_number = self.extract_text_from_box(self.page_number, scaled_rect_coords)
             if extracted_text_number:
-                # Show confirmation popup for sheet number
                 self.show_confirmation_popup_number(extracted_text_number)
             else:
                 messagebox.showwarning("No Text", "No text found in the selected area.")
-        else:
-            # Second box drawn around the sheet title
-            self.rect_coords_title = (self.start_x, self.start_y, end_x, end_y)
-            print(f"Selection box coordinates for title (scaled): {self.rect_coords_title}")
-
-            # Extract text from the selected area
-            scaled_rect_coords = [coord / self.scale_factor for coord in self.rect_coords_title]
+        elif self.draw_phase == "title":
+            self.rect_coords_title = new_box
+            scaled_rect_coords = [coord / self.scale_factor for coord in new_box]
             extracted_text_title = self.extract_text_from_box(self.page_number, scaled_rect_coords)
-            
             if extracted_text_title:
-                # Consolidate text into a single line
                 extracted_text_title = " ".join(extracted_text_title.split())
-                # Show confirmation popup for sheet title
                 self.show_confirmation_popup_title(extracted_text_title)
             else:
                 messagebox.showwarning("No Text", "No text found in the selected area.")
@@ -218,60 +212,63 @@ class PDFExtractorApp:
     def extract_text_from_box(self, page_number, box):
         page = self.pdf_document.load_page(page_number - 1)
         rect = fitz.Rect(box)
-        print(f"Extracting text from rect: {rect}")  # Debug information
-        
-        text = page.get_text("text", clip=rect).strip()
-        
-        print(f"Extracted text: {text}")  # Debug information
-        
-        return text
+        return page.get_text("text", clip=rect).strip()
 
     def show_confirmation_popup_number(self, extracted_text_number):
         confirmation_popup = Toplevel(self.root)
         confirmation_popup.title("Confirm Sheet Number")
-        confirmation_popup.geometry("300x200")
-        
+        confirmation_popup.geometry("420x220")
+
         label = Label(confirmation_popup, text=f"Extracted text: {extracted_text_number}\nIs this correct?")
-        label.pack(pady=10)
-        
+        label.pack(pady=16)
+
         button_frame = Frame(confirmation_popup)
         button_frame.pack(pady=10)
-        
-        cancel_button = Button(button_frame, text="Cancel", command=confirmation_popup.destroy)
-        cancel_button.pack(side=tk.LEFT, padx=10)
-        
-        confirm_button = Button(button_frame, text="Confirm & Draw Title Box", command=lambda: [self.activate_title_box_drawing(), confirmation_popup.destroy()])
-        confirm_button.pack(side=tk.LEFT)
-        
-        skip_button = Button(button_frame, text="Skip Title", command=lambda: [self.skip_title_drawing(), confirmation_popup.destroy()])
-        skip_button.pack(side=tk.LEFT)
+
+        Button(button_frame, text="Cancel", command=confirmation_popup.destroy).pack(side=tk.LEFT, padx=10)
+        Button(
+            button_frame,
+            text="Confirm & Draw Title Box",
+            command=lambda: [self.activate_title_box_drawing(), confirmation_popup.destroy()],
+        ).pack(side=tk.LEFT)
+        Button(button_frame, text="Skip Title", command=lambda: [self.skip_title_drawing(), confirmation_popup.destroy()]).pack(
+            side=tk.LEFT, padx=10
+        )
 
     def skip_title_drawing(self):
-        self.rect_coords_number_confirmed = True
+        self.rect_coords_number = self.pending_number_box
         self.rect_coords_title = None
+        self.draw_phase = None
+        self.set_status("Extracting sheets...")
         self.process_all_pages()
 
     def activate_title_box_drawing(self):
-        self.rect_coords_number_confirmed = True
+        self.rect_coords_number = self.pending_number_box
+        self.draw_phase = "title"
+        self.set_status("Draw a box around the sheet title")
 
     def show_confirmation_popup_title(self, extracted_text_title):
         confirmation_popup = Toplevel(self.root)
         confirmation_popup.title("Confirm Sheet Title")
-        confirmation_popup.geometry("300x150")
-        
-        self.extracted_text_title = extracted_text_title  # Store the extracted title text
-        
+        confirmation_popup.geometry("420x180")
+
         label = Label(confirmation_popup, text=f"Extracted text: {extracted_text_title}\nIs this correct?")
         label.pack(pady=20)
-        
+
         button_frame = Frame(confirmation_popup)
         button_frame.pack(pady=10)
-        
-        cancel_button = Button(button_frame, text="Cancel", command=confirmation_popup.destroy)
-        cancel_button.pack(side=tk.LEFT, padx=10)
-        
-        confirm_button = Button(button_frame, text="Confirm & Extract Sheets", command=lambda: [self.process_all_pages(), confirmation_popup.destroy()])
-        confirm_button.pack(side=tk.LEFT)
+
+        Button(button_frame, text="Cancel", command=confirmation_popup.destroy).pack(side=tk.LEFT, padx=10)
+        Button(
+            button_frame,
+            text="Confirm & Extract Sheets",
+            command=lambda: [self.finish_template_and_process(), confirmation_popup.destroy()],
+        ).pack(side=tk.LEFT)
+
+    def finish_template_and_process(self):
+        self.draw_phase = None
+        self.set_status("Extracting sheets...")
+        self.process_all_pages()
 
     def process_all_pages(self):
         self.sheet_numbers_titles = []
@@ -284,85 +281,114 @@ class PDFExtractorApp:
             else:
                 text_title = ""
             self.sheet_numbers_titles.append((page_num, text_number, text_title))
-        
+
         self.show_sheet_selection()
+        self.set_status("Review results. You can retry checked rows with new boxes.")
 
     def show_sheet_selection(self):
         selection_window = Toplevel(self.root)
         selection_window.title("Select Sheets to Extract")
-        selection_window.geometry("600x600")  # Set larger initial size
-        
-        # Frame for buttons at the top
+        selection_window.geometry("900x620")
+        self.selection_window = selection_window
+
         button_frame_top = Frame(selection_window)
         button_frame_top.pack(side=tk.TOP, pady=10, fill=tk.X)
-        
-        check_all_button = Button(button_frame_top, text="Check All", command=self.check_all)
-        check_all_button.pack(side=tk.LEFT, padx=5)
-        
-        uncheck_all_button = Button(button_frame_top, text="Uncheck All", command=self.uncheck_all)
-        uncheck_all_button.pack(side=tk.LEFT, padx=5)
-        
-        a_drawings_button = Button(button_frame_top, text="A Drawings", command=lambda: self.check_drawings_by_letter('A'))
-        a_drawings_button.pack(side=tk.LEFT, padx=5)
-        
-        c_drawings_button = Button(button_frame_top, text="C Drawings", command=lambda: self.check_drawings_by_letter('C'))
-        c_drawings_button.pack(side=tk.LEFT, padx=5)
-        
-        s_drawings_button = Button(button_frame_top, text="S Drawings", command=lambda: self.check_drawings_by_letter('S'))
-        s_drawings_button.pack(side=tk.LEFT, padx=5)
-        
-        # Frame for the checklist with scrollbars
+
+        Button(button_frame_top, text="Check All", command=self.check_all).pack(side=tk.LEFT, padx=5)
+        Button(button_frame_top, text="Uncheck All", command=self.uncheck_all).pack(side=tk.LEFT, padx=5)
+        Button(button_frame_top, text="A Drawings", command=lambda: self.check_drawings_by_letter("A")).pack(side=tk.LEFT, padx=5)
+        Button(button_frame_top, text="C Drawings", command=lambda: self.check_drawings_by_letter("C")).pack(side=tk.LEFT, padx=5)
+        Button(button_frame_top, text="S Drawings", command=lambda: self.check_drawings_by_letter("S")).pack(side=tk.LEFT, padx=5)
+        Button(button_frame_top, text="Retry Checked Rows", command=self.start_retry_for_checked).pack(side=tk.RIGHT, padx=5)
+
         checklist_frame = Frame(selection_window)
         checklist_frame.pack(fill=tk.BOTH, expand=True)
-        
+
         self.checklist_canvas = Canvas(checklist_frame)
         self.checklist_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
+
         scrollbar = Scrollbar(checklist_frame, orient=tk.VERTICAL, command=self.checklist_canvas.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
         self.checklist_canvas.config(yscrollcommand=scrollbar.set)
-        
+
         checklist_inner_frame = Frame(self.checklist_canvas)
         self.checklist_canvas.create_window((0, 0), window=checklist_inner_frame, anchor=tk.NW)
-        
         checklist_inner_frame.bind("<Configure>", lambda e: self.checklist_canvas.config(scrollregion=self.checklist_canvas.bbox(tk.ALL)))
         self.checklist_canvas.bind_all("<MouseWheel>", self._on_checklist_mousewheel)
-        
+
         self.check_vars = []
-        self.checkbuttons = []
         self.entries_number = []
         self.entries_title = []
-        
+
         for page_num, text_number, text_title in self.sheet_numbers_titles:
             var = IntVar()
             frame = Frame(checklist_inner_frame)
             frame.pack(anchor=tk.W, fill=tk.X)
-            
-            checkbutton = Checkbutton(frame, variable=var)
-            checkbutton.pack(side=tk.LEFT, padx=5)
+
+            Checkbutton(frame, variable=var).pack(side=tk.LEFT, padx=5)
             self.check_vars.append(var)
-            self.checkbuttons.append(checkbutton)
-            
+
+            Label(frame, text=f"Pg {page_num}", width=8, anchor="w").pack(side=tk.LEFT)
+
             entry_number = Entry(frame)
             entry_number.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
             entry_number.insert(0, text_number)
             self.entries_number.append(entry_number)
-            
-            entry_title = Entry(frame, width=40)  # Adjusted width to be twice as wide
+
+            entry_title = Entry(frame, width=44)
             entry_title.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
             entry_title.insert(0, text_title)
             self.entries_title.append(entry_title)
-        
-        # Frame for buttons at the bottom
+
         button_frame_bottom = Frame(selection_window)
         button_frame_bottom.pack(side=tk.BOTTOM, pady=10)
-        
-        save_number_button = Button(button_frame_bottom, text="Save Sheets with Number", width=25, command=lambda: self.save_sheets(with_title=False))
-        save_number_button.pack(side=tk.LEFT, padx=5)
-        
-        save_number_title_button = Button(button_frame_bottom, text="Save Sheets with Number and Title", width=30, command=lambda: self.save_sheets(with_title=True))
-        save_number_title_button.pack(side=tk.LEFT, padx=5)
+
+        Button(button_frame_bottom, text="Save Sheets with Number", width=25, command=lambda: self.save_sheets(False)).pack(
+            side=tk.LEFT, padx=5
+        )
+        Button(
+            button_frame_bottom,
+            text="Save Sheets with Number and Title",
+            width=30,
+            command=lambda: self.save_sheets(True),
+        ).pack(side=tk.LEFT, padx=5)
+
+    def start_retry_for_checked(self):
+        self.retry_indices = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
+        if not self.retry_indices:
+            messagebox.showwarning("No Rows Selected", "Check one or more rows to retry.")
+            return
+        self.active_retry_indices = self.retry_indices[:]
+        first_page = self.sheet_numbers_titles[self.active_retry_indices[0]][0]
+        self.page_number = first_page
+        self.display_page(first_page - 1)
+        self.pending_number_box = None
+        self.rect_coords_title = None
+        self.draw_phase = "number"
+        self.set_status("Retry mode: Draw a box around the sheet number")
+        messagebox.showinfo("Retry Checked Rows", "Draw number box, confirm, then draw title box. New boxes will be applied to all checked rows.")
+
+    def apply_retry_to_checked_rows(self):
+        if not self.active_retry_indices:
+            return
+        for index in self.active_retry_indices:
+            page_num, _, _ = self.sheet_numbers_titles[index]
+            scaled_rect_coords_number = [coord / self.scale_factor for coord in self.rect_coords_number]
+            text_number = self.extract_text_from_box(page_num, scaled_rect_coords_number)
+            if self.rect_coords_title:
+                scaled_rect_coords_title = [coord / self.scale_factor for coord in self.rect_coords_title]
+                text_title = self.extract_text_from_box(page_num, scaled_rect_coords_title)
+            else:
+                text_title = ""
+            self.sheet_numbers_titles[index] = (page_num, text_number, text_title)
+            self.entries_number[index].delete(0, tk.END)
+            self.entries_number[index].insert(0, text_number)
+            self.entries_title[index].delete(0, tk.END)
+            self.entries_title[index].insert(0, text_title)
+
+        self.draw_phase = None
+        self.set_status(f"Retry applied to {len(self.active_retry_indices)} checked rows. Review and save.")
+        messagebox.showinfo("Retry Complete", "Checked rows have been reprocessed with your new boxes.")
 
     def check_all(self):
         for var in self.check_vars:
@@ -373,10 +399,8 @@ class PDFExtractorApp:
             var.set(0)
 
     def check_drawings_by_letter(self, letter):
-        # Fix to check drawings based on the entry text instead of checkbutton text
         for i, entry_number in enumerate(self.entries_number):
             sheet_number = entry_number.get().strip()
-            # Check if the sheet number starts with the specified letter (case insensitive)
             if sheet_number and sheet_number.upper().startswith(letter):
                 self.check_vars[i].set(1)
 
@@ -384,16 +408,16 @@ class PDFExtractorApp:
         if not any(var.get() for var in self.check_vars):
             messagebox.showwarning("Warning", "No sheets selected to save.")
             return
-        
+
         output_dir = filedialog.askdirectory()
         if not output_dir:
             return
-        
+
         for index, var in enumerate(self.check_vars):
             if var.get() == 1:
-                page_num, text_number, text_title = self.sheet_numbers_titles[index]
-                text_number = self.entries_number[index].get()  # Get the potentially modified sheet number
-                text_title = self.entries_title[index].get()  # Get the potentially modified sheet title
+                page_num, _, _ = self.sheet_numbers_titles[index]
+                text_number = self.entries_number[index].get()
+                text_title = self.entries_title[index].get()
                 sanitized_text_number = self.sanitize_filename(text_number)
                 if with_title:
                     sanitized_text_title = self.sanitize_filename(text_title)
@@ -401,38 +425,53 @@ class PDFExtractorApp:
                 else:
                     output_path = os.path.join(output_dir, f"{sanitized_text_number}.pdf")
                 self.save_page_as_pdf(page_num, output_path)
-                print(f"Saved page {page_num} as {output_path}")
 
     def sanitize_filename(self, filename):
-        # Replace invalid characters with underscores and trim leading/trailing whitespace
         sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename).strip()
-        # Replace spaces with underscores
         return re.sub(r'\s+', '_', sanitized)
 
     def save_page_as_pdf(self, page_number, output_path):
-        new_doc = fitz.open()  # Create a new PDF
+        new_doc = fitz.open()
         new_doc.insert_pdf(self.pdf_document, from_page=page_number - 1, to_page=page_number - 1)
         new_doc.save(output_path)
-    
+
     def _on_mousewheel(self, event):
-        if event.state & 0x0001:  # Shift key is held
-            self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+        if event.state & 0x0001:
+            self.canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
         else:
-            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _on_shift_mousewheel(self, event):
-        self.canvas.xview_scroll(int(-1*(event.delta/120)), "units")
+        self.canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
 
     def _on_checklist_mousewheel(self, event):
-        if event.state & 0x0001:  # Shift key is held
-            self.checklist_canvas.xview_scroll(int(-1*(event.delta/120)), "units")
-        else:
-            self.checklist_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        if hasattr(self, "checklist_canvas"):
+            if event.state & 0x0001:
+                self.checklist_canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+            else:
+                self.checklist_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+
+# Hook retry completion into title confirmation flow
+_original_finish = PDFExtractorApp.finish_template_and_process
+
+
+def _finish_template_and_process(self):
+    if self.active_retry_indices:
+        self.draw_phase = None
+        self.apply_retry_to_checked_rows()
+    else:
+        _original_finish(self)
+
+
+PDFExtractorApp.finish_template_and_process = _finish_template_and_process
+
 
 def main():
     root = tk.Tk()
-    app = PDFExtractorApp(root)
+    PDFExtractorApp(root)
     root.mainloop()
+
 
 if __name__ == "__main__":
     main()
