@@ -88,6 +88,8 @@ class PDFExtractorApp:
         self.canvas.bind("<Button-1>", self.start_draw)
         self.canvas.bind("<B1-Motion>", self.draw_rect)
         self.canvas.bind("<ButtonRelease-1>", self.end_draw)
+        self.canvas.bind("<Button-3>", self.start_pan)
+        self.canvas.bind("<B3-Motion>", self.pan_canvas)
         self.canvas.bind("<Motion>", self.update_crosshair)
         self.canvas.bind("<Enter>", self.show_crosshair)
         self.canvas.bind("<Leave>", self.hide_crosshair)
@@ -117,6 +119,11 @@ class PDFExtractorApp:
         if primary:
             return Button(parent, text=text, command=command, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief=tk.FLAT, padx=12, pady=6)
         return Button(parent, text=text, command=command, bg="#e5e7eb", fg="#111827", activebackground="#d1d5db", relief=tk.FLAT, padx=12, pady=6)
+
+    def _styled_panel_button(self, parent, text, command, primary=False, width=None):
+        if primary:
+            return Button(parent, text=text, command=command, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief=tk.FLAT, padx=10, pady=6, width=width)
+        return Button(parent, text=text, command=command, bg="#e2e8f0", fg="#0f172a", activebackground="#cbd5e1", relief=tk.FLAT, padx=10, pady=6, width=width)
 
     def show_crosshair(self, event):
         x = self.canvas.canvasx(event.x)
@@ -157,6 +164,13 @@ class PDFExtractorApp:
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         self.create_crosshair(x, y)
+
+    def start_pan(self, event):
+        self.canvas.scan_mark(event.x, event.y)
+        self.set_status("Panning drawing view...")
+
+    def pan_canvas(self, event):
+        self.canvas.scan_dragto(event.x, event.y, gain=1)
 
     def upload_pdf(self):
         self.pdf_path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
@@ -314,32 +328,45 @@ class PDFExtractorApp:
         self.set_status("Review results. You can retry checked rows with new boxes.")
 
     def show_sheet_selection(self):
+        if hasattr(self, "selection_window") and self.selection_window.winfo_exists():
+            self.selection_window.destroy()
+
         selection_window = Toplevel(self.root)
         selection_window.title("Select Sheets to Extract")
         selection_window.geometry("900x620")
+        selection_window.configure(bg="#f3f6fb")
         self.selection_window = selection_window
 
-        button_frame_top = Frame(selection_window)
-        button_frame_top.pack(side=tk.TOP, pady=10, fill=tk.X)
+        toolbar_frame = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
+        toolbar_frame.pack(side=tk.TOP, pady=(10, 6), padx=10, fill=tk.X)
 
-        Button(button_frame_top, text="Check All", command=self.check_all).pack(side=tk.LEFT, padx=5)
-        Button(button_frame_top, text="Uncheck All", command=self.uncheck_all).pack(side=tk.LEFT, padx=5)
-        Button(button_frame_top, text="A Drawings", command=lambda: self.check_drawings_by_letter("A")).pack(side=tk.LEFT, padx=5)
-        Button(button_frame_top, text="C Drawings", command=lambda: self.check_drawings_by_letter("C")).pack(side=tk.LEFT, padx=5)
-        Button(button_frame_top, text="S Drawings", command=lambda: self.check_drawings_by_letter("S")).pack(side=tk.LEFT, padx=5)
-        Button(button_frame_top, text="Retry Checked Rows", command=self.start_retry_for_checked).pack(side=tk.RIGHT, padx=5)
+        Label(toolbar_frame, text="Review extracted sheets", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT, padx=(0, 14))
 
-        checklist_frame = Frame(selection_window)
-        checklist_frame.pack(fill=tk.BOTH, expand=True)
+        button_frame_top = Frame(toolbar_frame, bg="#ffffff")
+        button_frame_top.pack(side=tk.LEFT)
 
-        self.checklist_canvas = Canvas(checklist_frame)
+        self._styled_panel_button(button_frame_top, "Check All", self.check_all).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(button_frame_top, "Uncheck All", self.uncheck_all).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(button_frame_top, "A Drawings", lambda: self.check_drawings_by_letter("A")).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(button_frame_top, "C Drawings", lambda: self.check_drawings_by_letter("C")).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(button_frame_top, "S Drawings", lambda: self.check_drawings_by_letter("S")).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(toolbar_frame, "Retry Checked Rows", self.start_retry_for_checked, primary=True).pack(side=tk.RIGHT, padx=4)
+
+        header_frame = Frame(selection_window, bg="#eff6ff", padx=12, pady=8)
+        header_frame.pack(fill=tk.X, padx=10, pady=(0, 6))
+        Label(header_frame, text="Select rows to export or retry. You can edit number/title text directly.", bg="#eff6ff", fg="#1e3a8a", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+
+        checklist_frame = Frame(selection_window, bg="#ffffff", bd=1, relief=tk.SOLID)
+        checklist_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+
+        self.checklist_canvas = Canvas(checklist_frame, bg="#ffffff", highlightthickness=0)
         self.checklist_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         scrollbar = Scrollbar(checklist_frame, orient=tk.VERTICAL, command=self.checklist_canvas.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.checklist_canvas.config(yscrollcommand=scrollbar.set)
 
-        checklist_inner_frame = Frame(self.checklist_canvas)
+        checklist_inner_frame = Frame(self.checklist_canvas, bg="#ffffff")
         self.checklist_canvas.create_window((0, 0), window=checklist_inner_frame, anchor=tk.NW)
         checklist_inner_frame.bind("<Configure>", lambda e: self.checklist_canvas.config(scrollregion=self.checklist_canvas.bbox(tk.ALL)))
         self.checklist_canvas.bind_all("<MouseWheel>", self._on_checklist_mousewheel)
@@ -350,13 +377,13 @@ class PDFExtractorApp:
 
         for page_num, text_number, text_title in self.sheet_numbers_titles:
             var = IntVar()
-            frame = Frame(checklist_inner_frame)
+            frame = Frame(checklist_inner_frame, bg="#ffffff")
             frame.pack(anchor=tk.W, fill=tk.X)
 
-            Checkbutton(frame, variable=var).pack(side=tk.LEFT, padx=5)
+            Checkbutton(frame, variable=var, bg="#ffffff", activebackground="#ffffff").pack(side=tk.LEFT, padx=5)
             self.check_vars.append(var)
 
-            Label(frame, text=f"Pg {page_num}", width=8, anchor="w").pack(side=tk.LEFT)
+            Label(frame, text=f"Pg {page_num}", width=8, anchor="w", bg="#ffffff", fg="#334155").pack(side=tk.LEFT)
 
             entry_number = Entry(frame)
             entry_number.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
@@ -368,17 +395,18 @@ class PDFExtractorApp:
             entry_title.insert(0, text_title)
             self.entries_title.append(entry_title)
 
-        button_frame_bottom = Frame(selection_window)
-        button_frame_bottom.pack(side=tk.BOTTOM, pady=10)
+        button_frame_bottom = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
+        button_frame_bottom.pack(side=tk.BOTTOM, pady=(0, 10), padx=10, fill=tk.X)
 
-        Button(button_frame_bottom, text="Save Sheets with Number", width=25, command=lambda: self.save_sheets(False)).pack(
+        self._styled_panel_button(button_frame_bottom, "Save Sheets with Number", lambda: self.save_sheets(False), width=25).pack(
             side=tk.LEFT, padx=5
         )
-        Button(
+        self._styled_panel_button(
             button_frame_bottom,
             text="Save Sheets with Number and Title",
             width=30,
             command=lambda: self.save_sheets(True),
+            primary=True,
         ).pack(side=tk.LEFT, padx=5)
 
     def start_retry_for_checked(self):
@@ -415,7 +443,15 @@ class PDFExtractorApp:
             self.entries_title[index].insert(0, text_title)
 
         self.draw_phase = None
-        self.set_status(f"Retry applied to {len(self.active_retry_indices)} checked rows. Review and save.")
+        updated_count = len(self.active_retry_indices)
+        for index in self.active_retry_indices:
+            self.check_vars[index].set(0)
+        if hasattr(self, "selection_window") and self.selection_window.winfo_exists():
+            self.selection_window.deiconify()
+            self.selection_window.lift()
+            self.selection_window.focus_force()
+        self.active_retry_indices = []
+        self.set_status(f"Retry applied to {updated_count} checked rows. Review and save.")
         self.show_notice_popup("Retry Complete", "Checked rows have been reprocessed with your new boxes.")
 
     def show_notice_popup(self, title, message):
