@@ -1,6 +1,6 @@
 import fitz  # PyMuPDF
 import tkinter as tk
-from tkinter import filedialog, messagebox, Toplevel, Scrollbar, IntVar, Frame, Canvas, Label, Button, Entry, Checkbutton
+from tkinter import filedialog, Toplevel, Scrollbar, IntVar, Frame, Canvas, Label, Button, Entry, Checkbutton
 from PIL import Image, ImageTk
 import os
 import re
@@ -97,6 +97,26 @@ class PDFExtractorApp:
 
     def set_status(self, text):
         self.status_text.set(text)
+
+
+    def _create_styled_popup(self, title, geometry="440x220"):
+        popup = Toplevel(self.root)
+        popup.title(title)
+        popup.geometry(geometry)
+        popup.configure(bg="#f8fafc")
+        popup.transient(self.root)
+        popup.grab_set()
+        return popup
+
+    def _popup_content_frame(self, popup):
+        frame = Frame(popup, bg="#f8fafc", padx=16, pady=14)
+        frame.pack(fill=tk.BOTH, expand=True)
+        return frame
+
+    def _styled_button(self, parent, text, command, primary=False):
+        if primary:
+            return Button(parent, text=text, command=command, bg="#2563eb", fg="white", activebackground="#1d4ed8", activeforeground="white", relief=tk.FLAT, padx=12, pady=6)
+        return Button(parent, text=text, command=command, bg="#e5e7eb", fg="#111827", activebackground="#d1d5db", relief=tk.FLAT, padx=12, pady=6)
 
     def show_crosshair(self, event):
         x = self.canvas.canvasx(event.x)
@@ -198,7 +218,7 @@ class PDFExtractorApp:
             if extracted_text_number:
                 self.show_confirmation_popup_number(extracted_text_number)
             else:
-                messagebox.showwarning("No Text", "No text found in the selected area.")
+                self.show_notice_popup("No Text", "No text found in the selected area.")
         elif self.draw_phase == "title":
             self.rect_coords_title = new_box
             scaled_rect_coords = [coord / self.scale_factor for coord in new_box]
@@ -207,7 +227,7 @@ class PDFExtractorApp:
                 extracted_text_title = " ".join(extracted_text_title.split())
                 self.show_confirmation_popup_title(extracted_text_title)
             else:
-                messagebox.showwarning("No Text", "No text found in the selected area.")
+                self.show_notice_popup("No Text", "No text found in the selected area.")
 
     def extract_text_from_box(self, page_number, box):
         page = self.pdf_document.load_page(page_number - 1)
@@ -215,25 +235,29 @@ class PDFExtractorApp:
         return page.get_text("text", clip=rect).strip()
 
     def show_confirmation_popup_number(self, extracted_text_number):
-        confirmation_popup = Toplevel(self.root)
-        confirmation_popup.title("Confirm Sheet Number")
-        confirmation_popup.geometry("420x220")
+        confirmation_popup = self._create_styled_popup("Confirm Sheet Number")
+        content_frame = self._popup_content_frame(confirmation_popup)
 
-        label = Label(confirmation_popup, text=f"Extracted text: {extracted_text_number}\nIs this correct?")
-        label.pack(pady=16)
+        Label(
+            content_frame,
+            text="Confirm Sheet Number",
+            font=("Segoe UI", 12, "bold"),
+            bg="#f8fafc",
+            fg="#0f172a",
+        ).pack(anchor="w", pady=(0, 8))
+        Label(content_frame, text=f"Extracted text:\n{extracted_text_number}", bg="#f8fafc", fg="#334155", justify=tk.LEFT, wraplength=390).pack(anchor="w", pady=(0, 14))
 
-        button_frame = Frame(confirmation_popup)
-        button_frame.pack(pady=10)
+        button_frame = Frame(content_frame, bg="#f8fafc")
+        button_frame.pack(anchor="e")
 
-        Button(button_frame, text="Cancel", command=confirmation_popup.destroy).pack(side=tk.LEFT, padx=10)
-        Button(
+        self._styled_button(button_frame, "Cancel", confirmation_popup.destroy).pack(side=tk.LEFT, padx=6)
+        self._styled_button(button_frame, "Skip Title", lambda: [self.skip_title_drawing(), confirmation_popup.destroy()]).pack(side=tk.LEFT, padx=6)
+        self._styled_button(
             button_frame,
-            text="Confirm & Draw Title Box",
-            command=lambda: [self.activate_title_box_drawing(), confirmation_popup.destroy()],
-        ).pack(side=tk.LEFT)
-        Button(button_frame, text="Skip Title", command=lambda: [self.skip_title_drawing(), confirmation_popup.destroy()]).pack(
-            side=tk.LEFT, padx=10
-        )
+            "Confirm & Draw Title Box",
+            lambda: [self.activate_title_box_drawing(), confirmation_popup.destroy()],
+            primary=True,
+        ).pack(side=tk.LEFT, padx=6)
 
     def skip_title_drawing(self):
         self.rect_coords_number = self.pending_number_box
@@ -248,24 +272,28 @@ class PDFExtractorApp:
         self.set_status("Draw a box around the sheet title")
 
     def show_confirmation_popup_title(self, extracted_text_title):
-        confirmation_popup = Toplevel(self.root)
-        confirmation_popup.title("Confirm Sheet Title")
-        confirmation_popup.geometry("420x180")
+        confirmation_popup = self._create_styled_popup("Confirm Sheet Title", geometry="440x210")
+        content_frame = self._popup_content_frame(confirmation_popup)
 
-        label = Label(confirmation_popup, text=f"Extracted text: {extracted_text_title}\nIs this correct?")
-        label.pack(pady=20)
+        Label(content_frame, text="Confirm Sheet Title", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#0f172a").pack(anchor="w", pady=(0, 8))
+        Label(content_frame, text=f"Extracted text:\n{extracted_text_title}", bg="#f8fafc", fg="#334155", justify=tk.LEFT, wraplength=390).pack(anchor="w", pady=(0, 14))
 
-        button_frame = Frame(confirmation_popup)
-        button_frame.pack(pady=10)
+        button_frame = Frame(content_frame, bg="#f8fafc")
+        button_frame.pack(anchor="e")
 
-        Button(button_frame, text="Cancel", command=confirmation_popup.destroy).pack(side=tk.LEFT, padx=10)
-        Button(
+        self._styled_button(button_frame, "Cancel", confirmation_popup.destroy).pack(side=tk.LEFT, padx=6)
+        self._styled_button(
             button_frame,
-            text="Confirm & Extract Sheets",
-            command=lambda: [self.finish_template_and_process(), confirmation_popup.destroy()],
-        ).pack(side=tk.LEFT)
+            "Confirm",
+            lambda: [self.finish_template_and_process(), confirmation_popup.destroy()],
+            primary=True,
+        ).pack(side=tk.LEFT, padx=6)
 
     def finish_template_and_process(self):
+        if self.active_retry_indices:
+            self.draw_phase = None
+            self.apply_retry_to_checked_rows()
+            return
         self.draw_phase = None
         self.set_status("Extracting sheets...")
         self.process_all_pages()
@@ -356,7 +384,7 @@ class PDFExtractorApp:
     def start_retry_for_checked(self):
         self.retry_indices = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
         if not self.retry_indices:
-            messagebox.showwarning("No Rows Selected", "Check one or more rows to retry.")
+            self.show_notice_popup("No Rows Selected", "Check one or more rows to retry.")
             return
         self.active_retry_indices = self.retry_indices[:]
         first_page = self.sheet_numbers_titles[self.active_retry_indices[0]][0]
@@ -365,8 +393,8 @@ class PDFExtractorApp:
         self.pending_number_box = None
         self.rect_coords_title = None
         self.draw_phase = "number"
-        self.set_status("Retry mode: Draw a box around the sheet number")
-        messagebox.showinfo("Retry Checked Rows", "Draw number box, confirm, then draw title box. New boxes will be applied to all checked rows.")
+        self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the sheet number")
+        self.show_notice_popup("Retry Checked Rows", "Draw number box, confirm, then draw title box. New boxes will be applied to all checked rows.")
 
     def apply_retry_to_checked_rows(self):
         if not self.active_retry_indices:
@@ -388,7 +416,16 @@ class PDFExtractorApp:
 
         self.draw_phase = None
         self.set_status(f"Retry applied to {len(self.active_retry_indices)} checked rows. Review and save.")
-        messagebox.showinfo("Retry Complete", "Checked rows have been reprocessed with your new boxes.")
+        self.show_notice_popup("Retry Complete", "Checked rows have been reprocessed with your new boxes.")
+
+    def show_notice_popup(self, title, message):
+        popup = self._create_styled_popup(title, geometry="420x180")
+        content_frame = self._popup_content_frame(popup)
+        Label(content_frame, text=title, font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#0f172a").pack(anchor="w", pady=(0, 8))
+        Label(content_frame, text=message, bg="#f8fafc", fg="#334155", justify=tk.LEFT, wraplength=370).pack(anchor="w", pady=(0, 14))
+        button_frame = Frame(content_frame, bg="#f8fafc")
+        button_frame.pack(anchor="e")
+        self._styled_button(button_frame, "OK", popup.destroy, primary=True).pack(side=tk.LEFT)
 
     def check_all(self):
         for var in self.check_vars:
@@ -406,7 +443,7 @@ class PDFExtractorApp:
 
     def save_sheets(self, with_title):
         if not any(var.get() for var in self.check_vars):
-            messagebox.showwarning("Warning", "No sheets selected to save.")
+            self.show_notice_popup("Warning", "No sheets selected to save.")
             return
 
         output_dir = filedialog.askdirectory()
@@ -451,20 +488,6 @@ class PDFExtractorApp:
             else:
                 self.checklist_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
-
-# Hook retry completion into title confirmation flow
-_original_finish = PDFExtractorApp.finish_template_and_process
-
-
-def _finish_template_and_process(self):
-    if self.active_retry_indices:
-        self.draw_phase = None
-        self.apply_retry_to_checked_rows()
-    else:
-        _original_finish(self)
-
-
-PDFExtractorApp.finish_template_and_process = _finish_template_and_process
 
 
 def main():
