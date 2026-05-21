@@ -467,6 +467,7 @@ class PDFExtractorApp:
         self.checklist_canvas.create_window((0, 0), window=checklist_inner_frame, anchor=tk.NW)
         checklist_inner_frame.bind("<Configure>", lambda e: self.checklist_canvas.config(scrollregion=self.checklist_canvas.bbox(tk.ALL)))
         self.checklist_canvas.bind_all("<MouseWheel>", self._on_checklist_mousewheel)
+        self.checklist_canvas.bind_all("<MouseWheel>", self._on_checklist_mousewheel)
 
         self.check_vars = []
         self.entries_number = []
@@ -557,7 +558,7 @@ class PDFExtractorApp:
             entry_number.pack(side=tk.LEFT, padx=5)
             entry_number.insert(0, spec_number)
             self.spec_entries_number.append(entry_number)
-            entry_title = Entry(frame)
+            entry_title = Entry(frame, width=72)
             entry_title.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
             entry_title.insert(0, spec_name)
             self.spec_entries_title.append(entry_title)
