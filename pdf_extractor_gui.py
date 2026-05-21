@@ -29,9 +29,24 @@ class PDFExtractorApp:
         self.v_line = None
 
         self.status_text = tk.StringVar(value="Upload a PDF to begin.")
+        self.extraction_mode = "drawings"
 
         self.button_frame = Frame(root, bg="#ffffff", padx=10, pady=10)
         self.button_frame.pack(fill=tk.X, padx=10, pady=(10, 4))
+
+        self.mode_button = Button(
+            self.button_frame,
+            text="Mode: Drawings",
+            command=self.toggle_mode,
+            bg="#0ea5e9",
+            fg="white",
+            activebackground="#0284c7",
+            activeforeground="white",
+            relief=tk.FLAT,
+            padx=14,
+            pady=8,
+        )
+        self.mode_button.pack(side=tk.LEFT, padx=(0, 8))
 
         self.upload_button = Button(
             self.button_frame,
@@ -172,6 +187,18 @@ class PDFExtractorApp:
     def pan_canvas(self, event):
         self.canvas.scan_dragto(event.x, event.y, gain=1)
 
+    def toggle_mode(self):
+        if self.extraction_mode == "drawings":
+            self.extraction_mode = "specs"
+            self.mode_button.config(text="Mode: Specs")
+            self.next_button.config(text="Next Page")
+            self.set_status("Specs mode enabled. Upload a large specs PDF to begin.")
+        else:
+            self.extraction_mode = "drawings"
+            self.mode_button.config(text="Mode: Drawings")
+            self.next_button.config(text="Next Drawing")
+            self.set_status("Drawings mode enabled. Upload a PDF to begin.")
+
     def upload_pdf(self):
         self.pdf_path = filedialog.askopenfilename(filetypes=[("PDF Files", "*.pdf")])
         if self.pdf_path:
@@ -180,7 +207,10 @@ class PDFExtractorApp:
             self.rect_coords_title = None
             self.draw_phase = "number"
             self.load_first_page()
-            self.set_status("Draw a box around the sheet number")
+            if self.extraction_mode == "specs":
+                self.set_status("Go to the first technical spec sheet, then draw a box around the spec number")
+            else:
+                self.set_status("Draw a box around the sheet number")
 
     def next_drawing(self):
         if self.pdf_document and self.page_number < len(self.pdf_document):
@@ -252,9 +282,12 @@ class PDFExtractorApp:
         confirmation_popup = self._create_styled_popup("Confirm Sheet Number")
         content_frame = self._popup_content_frame(confirmation_popup)
 
+        number_label = "Confirm Spec Number" if self.extraction_mode == "specs" else "Confirm Sheet Number"
+        title_prompt = "Confirm & Draw Spec Name Box" if self.extraction_mode == "specs" else "Confirm & Draw Title Box"
+
         Label(
             content_frame,
-            text="Confirm Sheet Number",
+            text=number_label,
             font=("Segoe UI", 12, "bold"),
             bg="#f8fafc",
             fg="#0f172a",
@@ -268,7 +301,7 @@ class PDFExtractorApp:
         self._styled_button(button_frame, "Skip Title", lambda: [self.skip_title_drawing(), confirmation_popup.destroy()]).pack(side=tk.LEFT, padx=6)
         self._styled_button(
             button_frame,
-            "Confirm & Draw Title Box",
+            title_prompt,
             lambda: [self.activate_title_box_drawing(), confirmation_popup.destroy()],
             primary=True,
         ).pack(side=tk.LEFT, padx=6)
@@ -283,13 +316,14 @@ class PDFExtractorApp:
     def activate_title_box_drawing(self):
         self.rect_coords_number = self.pending_number_box
         self.draw_phase = "title"
-        self.set_status("Draw a box around the sheet title")
+        self.set_status("Draw a box around the spec name" if self.extraction_mode == "specs" else "Draw a box around the sheet title")
 
     def show_confirmation_popup_title(self, extracted_text_title):
-        confirmation_popup = self._create_styled_popup("Confirm Sheet Title", geometry="440x210")
+        confirmation_popup = self._create_styled_popup("Confirm Name", geometry="440x210")
         content_frame = self._popup_content_frame(confirmation_popup)
 
-        Label(content_frame, text="Confirm Sheet Title", font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#0f172a").pack(anchor="w", pady=(0, 8))
+        label_text = "Confirm Spec Name" if self.extraction_mode == "specs" else "Confirm Sheet Title"
+        Label(content_frame, text=label_text, font=("Segoe UI", 12, "bold"), bg="#f8fafc", fg="#0f172a").pack(anchor="w", pady=(0, 8))
         Label(content_frame, text=f"Extracted text:\n{extracted_text_title}", bg="#f8fafc", fg="#334155", justify=tk.LEFT, wraplength=390).pack(anchor="w", pady=(0, 14))
 
         button_frame = Frame(content_frame, bg="#f8fafc")
@@ -340,16 +374,18 @@ class PDFExtractorApp:
         toolbar_frame = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
         toolbar_frame.pack(side=tk.TOP, pady=(10, 6), padx=10, fill=tk.X)
 
-        Label(toolbar_frame, text="Review extracted sheets", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT, padx=(0, 14))
+        header_text = "Review extracted specs" if self.extraction_mode == "specs" else "Review extracted sheets"
+        Label(toolbar_frame, text=header_text, bg="#ffffff", fg="#0f172a", font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT, padx=(0, 14))
 
         button_frame_top = Frame(toolbar_frame, bg="#ffffff")
         button_frame_top.pack(side=tk.LEFT)
 
         self._styled_panel_button(button_frame_top, "Check All", self.check_all).pack(side=tk.LEFT, padx=4)
         self._styled_panel_button(button_frame_top, "Uncheck All", self.uncheck_all).pack(side=tk.LEFT, padx=4)
-        self._styled_panel_button(button_frame_top, "A Drawings", lambda: self.check_drawings_by_letter("A")).pack(side=tk.LEFT, padx=4)
-        self._styled_panel_button(button_frame_top, "C Drawings", lambda: self.check_drawings_by_letter("C")).pack(side=tk.LEFT, padx=4)
-        self._styled_panel_button(button_frame_top, "S Drawings", lambda: self.check_drawings_by_letter("S")).pack(side=tk.LEFT, padx=4)
+        if self.extraction_mode == "drawings":
+            self._styled_panel_button(button_frame_top, "A Drawings", lambda: self.check_drawings_by_letter("A")).pack(side=tk.LEFT, padx=4)
+            self._styled_panel_button(button_frame_top, "C Drawings", lambda: self.check_drawings_by_letter("C")).pack(side=tk.LEFT, padx=4)
+            self._styled_panel_button(button_frame_top, "S Drawings", lambda: self.check_drawings_by_letter("S")).pack(side=tk.LEFT, padx=4)
         self._styled_panel_button(toolbar_frame, "Retry Checked Rows", self.start_retry_for_checked, primary=True).pack(side=tk.RIGHT, padx=4)
 
         header_frame = Frame(selection_window, bg="#eff6ff", padx=12, pady=8)
@@ -398,16 +434,18 @@ class PDFExtractorApp:
         button_frame_bottom = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
         button_frame_bottom.pack(side=tk.BOTTOM, pady=(0, 10), padx=10, fill=tk.X)
 
-        self._styled_panel_button(button_frame_bottom, "Save Sheets with Number", lambda: self.save_sheets(False), width=25).pack(
-            side=tk.LEFT, padx=5
-        )
-        self._styled_panel_button(
-            button_frame_bottom,
-            text="Save Sheets with Number and Title",
-            width=30,
-            command=lambda: self.save_sheets(True),
-            primary=True,
-        ).pack(side=tk.LEFT, padx=5)
+        if self.extraction_mode == "specs":
+            self._styled_panel_button(button_frame_bottom, "Preview Checked", self.preview_checked_pages, width=20).pack(side=tk.LEFT, padx=5)
+            self._styled_panel_button(button_frame_bottom, "Save Specs by Number + Name", lambda: self.save_specs_grouped(), width=32, primary=True).pack(side=tk.LEFT, padx=5)
+        else:
+            self._styled_panel_button(button_frame_bottom, "Save Sheets with Number", lambda: self.save_sheets(False), width=25).pack(side=tk.LEFT, padx=5)
+            self._styled_panel_button(
+                button_frame_bottom,
+                text="Save Sheets with Number and Title",
+                width=30,
+                command=lambda: self.save_sheets(True),
+                primary=True,
+            ).pack(side=tk.LEFT, padx=5)
 
     def start_retry_for_checked(self):
         self.retry_indices = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
@@ -498,6 +536,51 @@ class PDFExtractorApp:
                 else:
                     output_path = os.path.join(output_dir, f"{sanitized_text_number}.pdf")
                 self.save_page_as_pdf(page_num, output_path)
+
+
+    def preview_checked_pages(self):
+        checked = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
+        if not checked:
+            self.show_notice_popup("No Rows Selected", "Check at least one row to preview.")
+            return
+        first_page = self.sheet_numbers_titles[checked[0]][0]
+        self.page_number = first_page
+        self.display_page(first_page - 1)
+        self.set_status(f"Previewing first checked page: {first_page}")
+
+    def save_specs_grouped(self):
+        selected = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
+        if not selected:
+            self.show_notice_popup("Warning", "No specs selected to save.")
+            return
+        output_dir = filedialog.askdirectory()
+        if not output_dir:
+            return
+
+        groups = {}
+        for index in selected:
+            page_num, _, _ = self.sheet_numbers_titles[index]
+            spec_number = self.entries_number[index].get().strip()
+            spec_name = self.entries_title[index].get().strip()
+            if not spec_number and not spec_name:
+                continue
+            key = (spec_number, spec_name)
+            groups.setdefault(key, []).append(page_num)
+
+        if not groups:
+            self.show_notice_popup("Nothing to Save", "No valid spec number/name pairs were selected.")
+            return
+
+        for (spec_number, spec_name), pages in groups.items():
+            safe_number = self.sanitize_filename(spec_number or "UNKNOWN_SPEC")
+            safe_name = self.sanitize_filename(spec_name or "UNTITLED")
+            output_path = os.path.join(output_dir, f"{safe_number} - {safe_name}.pdf")
+            new_doc = fitz.open()
+            for page in sorted(set(pages)):
+                new_doc.insert_pdf(self.pdf_document, from_page=page - 1, to_page=page - 1)
+            new_doc.save(output_path)
+
+        self.show_notice_popup("Specs Saved", f"Saved {len(groups)} grouped spec PDF(s).")
 
     def sanitize_filename(self, filename):
         sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename).strip()
