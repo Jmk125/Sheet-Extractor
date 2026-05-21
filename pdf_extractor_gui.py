@@ -577,6 +577,7 @@ class PDFExtractorApp:
         self._styled_panel_button(button_frame_top, "Check All", self.check_all).pack(side=tk.LEFT, padx=4)
         self._styled_panel_button(button_frame_top, "Uncheck All", self.uncheck_all).pack(side=tk.LEFT, padx=4)
         self._styled_panel_button(button_frame_top, "Preview Checked", self.preview_checked_pages).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(button_frame_top, "Retry Checked Pages", self.start_retry_for_checked, primary=True).pack(side=tk.LEFT, padx=4)
 
         checklist_frame = Frame(selection_window, bg="#ffffff", bd=1, relief=tk.SOLID)
         checklist_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
@@ -626,23 +627,66 @@ class PDFExtractorApp:
 
         button_frame_bottom = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
         button_frame_bottom.pack(side=tk.BOTTOM, pady=(0, 10), padx=10, fill=tk.X)
-        self._styled_panel_button(button_frame_bottom, "Retry Checked Missing Pages", self.start_retry_missing_specs, width=28).pack(side=tk.LEFT, padx=5)
         self._styled_panel_button(button_frame_bottom, "Save Specs by Number + Name", self.save_specs_grouped, width=32, primary=True).pack(side=tk.LEFT, padx=5)
 
     def start_retry_for_checked(self):
-        self.retry_indices = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
-        if not self.retry_indices:
+        checked = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
+        if not checked:
             self.show_notice_popup("No Rows Selected", "Check one or more rows to retry.")
             return
-        self.active_retry_indices = self.retry_indices[:]
-        first_page = self.sheet_numbers_titles[self.active_retry_indices[0]][0]
+
+        if self.extraction_mode == "specs" and hasattr(self, "spec_group_items"):
+            page_to_index = {page_num: idx for idx, (page_num, _, _) in enumerate(self.sheet_numbers_titles)}
+            retry_pages = []
+            grouped_count = len(self.spec_group_items)
+            for checked_index in checked:
+                if checked_index < grouped_count:
+                    _, group_data = self.spec_group_items[checked_index]
+                    retry_pages.extend(group_data["pages"])
+                else:
+                    missing_offset = checked_index - grouped_count
+                    if 0 <= missing_offset < len(self.missing_retry_pages):
+                        retry_pages.append(self.missing_retry_pages[missing_offset])
+            retry_pages = sorted(set(retry_pages))
+            self.active_retry_indices = [page_to_index[p] for p in retry_pages if p in page_to_index]
+            if not self.active_retry_indices:
+                self.show_notice_popup("Retry Error", "Could not map checked rows to pages.")
+                return
+            first_page = retry_pages[0]
+        else:
+            self.retry_indices = checked
+            self.active_retry_indices = self.retry_indices[:]
+            first_page = self.sheet_numbers_titles[self.active_retry_indices[0]][0]
+
         self.page_number = first_page
         self.display_page(first_page - 1)
         self.pending_number_box = None
         self.rect_coords_title = None
         self.draw_phase = "number"
-        self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the sheet number")
-        self.show_notice_popup("Retry Checked Rows", "Draw number box, confirm, then draw title box. New boxes will be applied to all checked rows.")
+        prompt_label = "spec number" if self.extraction_mode == "specs" else "sheet number"
+        self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the {prompt_label}")
+        self.show_notice_popup("Retry Checked Rows", "Draw number box, confirm, then draw title/name box. New boxes will be applied to all checked pages.")
+
+    def start_retry_missing_specs(self):
+        if not hasattr(self, "missing_retry_vars"):
+            return
+        selected_pages = [self.missing_retry_pages[i] for i, var in enumerate(self.missing_retry_vars) if var.get() == 1]
+        if not selected_pages:
+            self.show_notice_popup("No Pages Selected", "Check one or more missing pages to retry.")
+            return
+        page_to_index = {page_num: idx for idx, (page_num, _, _) in enumerate(self.sheet_numbers_titles)}
+        self.active_retry_indices = [page_to_index[p] for p in selected_pages if p in page_to_index]
+        if not self.active_retry_indices:
+            self.show_notice_popup("Retry Error", "Could not map missing pages for retry.")
+            return
+        first_page = min(selected_pages)
+        self.page_number = first_page
+        self.display_page(first_page - 1)
+        self.pending_number_box = None
+        self.rect_coords_title = None
+        self.draw_phase = "number"
+        self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the spec number")
+        self.show_notice_popup("Retry Missing Pages", "Draw number box, confirm, then draw name box. New boxes will be applied to selected missing pages.")
 
     def start_retry_missing_specs(self):
         if not hasattr(self, "missing_retry_vars"):
