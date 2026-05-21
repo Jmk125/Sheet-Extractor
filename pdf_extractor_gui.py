@@ -688,6 +688,27 @@ class PDFExtractorApp:
         self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the spec number")
         self.show_notice_popup("Retry Missing Pages", "Draw number box, confirm, then draw name box. New boxes will be applied to selected missing pages.")
 
+    def start_retry_missing_specs(self):
+        if not hasattr(self, "missing_retry_vars"):
+            return
+        selected_pages = [self.missing_retry_pages[i] for i, var in enumerate(self.missing_retry_vars) if var.get() == 1]
+        if not selected_pages:
+            self.show_notice_popup("No Pages Selected", "Check one or more missing pages to retry.")
+            return
+        page_to_index = {page_num: idx for idx, (page_num, _, _) in enumerate(self.sheet_numbers_titles)}
+        self.active_retry_indices = [page_to_index[p] for p in selected_pages if p in page_to_index]
+        if not self.active_retry_indices:
+            self.show_notice_popup("Retry Error", "Could not map missing pages for retry.")
+            return
+        first_page = min(selected_pages)
+        self.page_number = first_page
+        self.display_page(first_page - 1)
+        self.pending_number_box = None
+        self.rect_coords_title = None
+        self.draw_phase = "number"
+        self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the spec number")
+        self.show_notice_popup("Retry Missing Pages", "Draw number box, confirm, then draw name box. New boxes will be applied to selected missing pages.")
+
     def apply_retry_to_checked_rows(self):
         if not self.active_retry_indices:
             return
