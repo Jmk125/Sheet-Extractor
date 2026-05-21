@@ -63,6 +63,18 @@ class PDFExtractorApp:
         )
         self.upload_button.pack(side=tk.LEFT, padx=(0, 8))
 
+        self.prev_button = Button(
+            self.button_frame,
+            text="Previous Page",
+            command=self.previous_page,
+            bg="#e5e7eb",
+            fg="#111827",
+            relief=tk.FLAT,
+            padx=14,
+            pady=8,
+        )
+        self.prev_button.pack(side=tk.LEFT)
+
         self.next_button = Button(
             self.button_frame,
             text="Next Drawing",
@@ -73,7 +85,7 @@ class PDFExtractorApp:
             padx=14,
             pady=8,
         )
-        self.next_button.pack(side=tk.LEFT)
+        self.next_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self.prev_button = Button(
             self.button_frame,
@@ -295,9 +307,15 @@ class PDFExtractorApp:
                 self.show_notice_popup("No Text", "No text found in the selected area.")
 
     def extract_text_from_box(self, page_number, box):
-        page = self.pdf_document.load_page(page_number - 1)
-        rect = fitz.Rect(box)
-        return page.get_text("text", clip=rect).strip()
+        try:
+            page_count = self.pdf_document.page_count
+            if page_number < 1 or page_number > page_count:
+                return ""
+            page = self.pdf_document.load_page(page_number - 1)
+            rect = fitz.Rect(box)
+            return page.get_text("text", clip=rect).strip()
+        except Exception:
+            return ""
 
     def show_confirmation_popup_number(self, extracted_text_number):
         confirmation_popup = self._create_styled_popup("Confirm Sheet Number")
@@ -369,8 +387,10 @@ class PDFExtractorApp:
 
     def process_all_pages(self):
         self.sheet_numbers_titles = []
+        page_count = self.pdf_document.page_count
         start_page = self.scan_start_page if self.extraction_mode == "specs" else 1
-        for page_num in range(start_page, self.pdf_document.page_count + 1):
+        start_page = max(1, min(start_page, page_count))
+        for page_num in range(start_page, page_count + 1):
             scaled_rect_coords_number = [coord / self.scale_factor for coord in self.rect_coords_number]
             text_number = self.extract_text_from_box(page_num, scaled_rect_coords_number)
             if self.rect_coords_title:
