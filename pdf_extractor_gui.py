@@ -418,23 +418,23 @@ class PDFExtractorApp:
     def normalize_spec_number(self, raw_text):
         text = (raw_text or "").upper()
         text = re.sub(r"[–—−]", "-", text)
-        text = re.sub(r"(?<=\d)\s*[-_.]\s*\d{1,3}\b", "", text)
 
-        # Light OCR correction for spec-number regions.
-        text = re.sub(r"(?<=\d)[O](?=\d)", "0", text)
-        text = re.sub(r"(?<!\d)[O](?=\d{5}\b)", "0", text)
-        text = re.sub(r"(?<=\d)[IL](?=\d)", "1", text)
-
+        # Keep extraction conservative: find the first true 6-digit section number,
+        # then ignore anything after it (e.g., "-1", "- 2", suffix text).
         spaced_match = re.search(r"(?<!\d)(\d(?:\s*\d){5})(?!\d)", text)
         if spaced_match:
             return re.sub(r"\s+", "", spaced_match.group(1))
 
         compact = re.sub(r"\s+", "", text)
-        match = re.search(r"(\d{6})", compact)
+        compact = re.sub(r"(?<=\d)[O](?=\d)", "0", compact)
+        compact = re.sub(r"(?<!\d)[O](?=\d{5}(?!\d))", "0", compact)
+        compact = re.sub(r"(?<=\d)[IL](?=\d)", "1", compact)
+
+        match = re.search(r"(?<!\d)(\d{6})(?!\d)", compact)
         if match:
             return match.group(1)
 
-        return (raw_text or "").strip()
+        return ""
 
     def show_sheet_selection(self):
         if hasattr(self, "selection_window") and self.selection_window.winfo_exists():
