@@ -25,6 +25,7 @@ class PDFExtractorApp:
         self.retry_indices = []
         self.active_retry_indices = []
         self.scan_start_page = 1
+        self.show_template_overlay = False
 
         self.h_line = None
         self.v_line = None
@@ -250,7 +251,31 @@ class PDFExtractorApp:
         self.img_tk = ImageTk.PhotoImage(img)
         self.canvas.delete("all")
         self.canvas.create_image(0, 0, anchor=tk.NW, image=self.img_tk)
+        if self.show_template_overlay:
+            self.draw_template_overlays()
         self.canvas.config(scrollregion=self.canvas.bbox(tk.ALL))
+
+    def draw_template_overlays(self):
+        if self.rect_coords_number:
+            self.canvas.create_rectangle(*self.rect_coords_number, outline="#16a34a", width=2, dash=(5, 3))
+            self.canvas.create_text(
+                self.rect_coords_number[0],
+                max(10, self.rect_coords_number[1] - 10),
+                text="Number Box",
+                fill="#166534",
+                anchor=tk.W,
+                font=("Segoe UI", 9, "bold"),
+            )
+        if self.rect_coords_title:
+            self.canvas.create_rectangle(*self.rect_coords_title, outline="#9333ea", width=2, dash=(5, 3))
+            self.canvas.create_text(
+                self.rect_coords_title[0],
+                max(10, self.rect_coords_title[1] - 10),
+                text="Name Box",
+                fill="#6b21a8",
+                anchor=tk.W,
+                font=("Segoe UI", 9, "bold"),
+            )
 
     def start_draw(self, event):
         if not self.pdf_document or not self.draw_phase:
@@ -389,6 +414,7 @@ class PDFExtractorApp:
                 text_title = self.extract_text_from_box(page_num, scaled_rect_coords_title)
             else:
                 text_title = ""
+            text_title = self.normalize_spec_name(text_title) if self.extraction_mode == "specs" else text_title
             self.sheet_numbers_titles.append((page_num, text_number, text_title))
 
         if self.extraction_mode == "specs":
@@ -435,6 +461,15 @@ class PDFExtractorApp:
             return match.group(1)
 
         return ""
+
+    def normalize_spec_name(self, raw_text):
+        text = (raw_text or "").strip()
+        if not text:
+            return ""
+        text = re.sub(r"\s+", " ", text)
+        # Remove frequent trailing legal boilerplate that may bleed into title box.
+        text = re.split(r"\b(COPYRIGHT|WARNING|AIA DOCUMENT)\b", text, maxsplit=1, flags=re.IGNORECASE)[0].strip(" -:;,")
+        return text[:160]
 
     def show_sheet_selection(self):
         if hasattr(self, "selection_window") and self.selection_window.winfo_exists():
@@ -712,10 +747,12 @@ class PDFExtractorApp:
             self.show_notice_popup("No Rows Selected", "Check at least one row to preview.")
             return
         if self.extraction_mode == "specs":
-            first_page = self.spec_group_items[checked[0]][1][0]
+            _, group_data = self.spec_group_items[checked[0]]
+            first_page = group_data["pages"][0]
         else:
             first_page = self.sheet_numbers_titles[checked[0]][0]
         self.page_number = first_page
+        self.show_template_overlay = True
         self.display_page(first_page - 1)
         self.set_status(f"Previewing first checked page: {first_page}")
 
