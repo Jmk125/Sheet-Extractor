@@ -313,6 +313,7 @@ class PDFExtractorApp:
 
         number_label = "Confirm Spec Number" if self.extraction_mode == "specs" else "Confirm Sheet Number"
         title_prompt = "Confirm & Draw Spec Name Box" if self.extraction_mode == "specs" else "Confirm & Draw Title Box"
+        display_number = self.normalize_spec_number(extracted_text_number) if self.extraction_mode == "specs" else extracted_text_number
 
         Label(
             content_frame,
@@ -321,7 +322,7 @@ class PDFExtractorApp:
             bg="#f8fafc",
             fg="#0f172a",
         ).pack(anchor="w", pady=(0, 8))
-        Label(content_frame, text=f"Extracted text:\n{extracted_text_number}", bg="#f8fafc", fg="#334155", justify=tk.LEFT, wraplength=390).pack(anchor="w", pady=(0, 14))
+        Label(content_frame, text=f"Extracted text:\n{display_number}", bg="#f8fafc", fg="#334155", justify=tk.LEFT, wraplength=390).pack(anchor="w", pady=(0, 14))
 
         button_frame = Frame(content_frame, bg="#f8fafc")
         button_frame.pack(anchor="e")
@@ -406,8 +407,11 @@ class PDFExtractorApp:
             if not spec_number and not spec_name:
                 missing_pages.append(page_num)
                 continue
-            key = (spec_number, spec_name)
-            grouped_specs.setdefault(key, []).append(page_num)
+            if spec_number not in grouped_specs:
+                grouped_specs[spec_number] = {"name": spec_name, "pages": []}
+            elif not grouped_specs[spec_number]["name"] and spec_name:
+                grouped_specs[spec_number]["name"] = spec_name
+            grouped_specs[spec_number]["pages"].append(page_num)
         self.spec_groups = grouped_specs
         self.spec_missing_pages = missing_pages
 
@@ -540,7 +544,9 @@ class PDFExtractorApp:
         self.spec_entries_title = []
         self.spec_group_items = list(self.spec_groups.items())
 
-        for (spec_number, spec_name), pages in self.spec_group_items:
+        for spec_number, group_data in self.spec_group_items:
+            spec_name = group_data["name"]
+            pages = group_data["pages"]
             var = IntVar(value=1)
             frame = Frame(checklist_inner_frame, bg="#ffffff")
             frame.pack(anchor=tk.W, fill=tk.X, pady=1)
@@ -556,22 +562,21 @@ class PDFExtractorApp:
             entry_title.insert(0, spec_name)
             self.spec_entries_title.append(entry_title)
 
-        if self.spec_missing_pages:
-            missing_frame = Frame(selection_window, bg="#fff7ed", bd=1, relief=tk.SOLID, padx=10, pady=8)
-            missing_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
-            Label(missing_frame, text="Pages with missing spec number and/or name", bg="#fff7ed", fg="#9a3412", font=("Segoe UI", 10, "bold")).pack(anchor="w")
-            checks_wrap = Frame(missing_frame, bg="#fff7ed")
-            checks_wrap.pack(anchor="w", pady=(6, 4))
-            self.missing_retry_vars = []
-            self.missing_retry_pages = self.spec_missing_pages[:]
-            for page_num in self.missing_retry_pages:
-                var = IntVar()
-                Checkbutton(checks_wrap, text=f"Pg {page_num}", variable=var, bg="#fff7ed", activebackground="#fff7ed").pack(side=tk.LEFT, padx=(0, 10))
-                self.missing_retry_vars.append(var)
-            self._styled_panel_button(missing_frame, "Retry Checked Missing Pages", self.start_retry_missing_specs, primary=True).pack(anchor="w", pady=(4, 0))
+        self.missing_retry_vars = []
+        self.missing_retry_pages = self.spec_missing_pages[:]
+        for page_num in self.missing_retry_pages:
+            var = IntVar()
+            frame = Frame(checklist_inner_frame, bg="#fff7ed")
+            frame.pack(anchor=tk.W, fill=tk.X, pady=1)
+            Checkbutton(frame, variable=var, bg="#fff7ed", activebackground="#fff7ed").pack(side=tk.LEFT, padx=5)
+            self.missing_retry_vars.append(var)
+            Label(frame, text="Missing", width=12, anchor="w", bg="#fff7ed", fg="#9a3412").pack(side=tk.LEFT, padx=(0, 4))
+            Label(frame, text="NO_SPEC_FOUND", width=20, anchor="w", bg="#fff7ed", fg="#9a3412").pack(side=tk.LEFT, padx=5)
+            Label(frame, text=f"Pg {page_num}", anchor="w", bg="#fff7ed", fg="#9a3412").pack(side=tk.LEFT, padx=5)
 
         button_frame_bottom = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
         button_frame_bottom.pack(side=tk.BOTTOM, pady=(0, 10), padx=10, fill=tk.X)
+        self._styled_panel_button(button_frame_bottom, "Retry Checked Missing Pages", self.start_retry_missing_specs, width=28).pack(side=tk.LEFT, padx=5)
         self._styled_panel_button(button_frame_bottom, "Save Specs by Number + Name", self.save_specs_grouped, width=32, primary=True).pack(side=tk.LEFT, padx=5)
 
     def start_retry_for_checked(self):
@@ -710,7 +715,8 @@ class PDFExtractorApp:
 
         groups = {}
         for index in selected:
-            (_, _), pages = self.spec_group_items[index]
+            _, group_data = self.spec_group_items[index]
+            pages = group_data["pages"]
             spec_number = self.spec_entries_number[index].get().strip()
             spec_name = self.spec_entries_title[index].get().strip()
             if not spec_number and not spec_name:
