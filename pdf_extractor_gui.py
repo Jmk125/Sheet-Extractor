@@ -87,6 +87,18 @@ class PDFExtractorApp:
         )
         self.next_button.pack(side=tk.LEFT, padx=(8, 0))
 
+        self.prev_button = Button(
+            self.button_frame,
+            text="Previous Page",
+            command=self.previous_page,
+            bg="#e5e7eb",
+            fg="#111827",
+            relief=tk.FLAT,
+            padx=14,
+            pady=8,
+        )
+        self.prev_button.pack(side=tk.LEFT, padx=(8, 0))
+
         self.status_label = Label(
             root,
             textvariable=self.status_text,
