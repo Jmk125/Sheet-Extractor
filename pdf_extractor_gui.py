@@ -728,20 +728,54 @@ class PDFExtractorApp:
             self.show_notice_popup("Nothing to Save", "No valid spec number/name pairs were selected.")
             return
 
+        saved_count = 0
+        failed_files = []
         for (spec_number, spec_name), pages in groups.items():
             safe_number = self.sanitize_filename(spec_number or "UNKNOWN_SPEC")
             safe_name = self.sanitize_filename(spec_name or "UNTITLED")
-            output_path = os.path.join(output_dir, f"{safe_number} - {safe_name}.pdf")
-            new_doc = fitz.open()
-            for page in sorted(set(pages)):
-                new_doc.insert_pdf(self.pdf_document, from_page=page - 1, to_page=page - 1)
-            new_doc.save(output_path)
+            output_path = self.build_safe_output_path(output_dir, safe_number, safe_name)
+            try:
+                new_doc = fitz.open()
+                for page in sorted(set(pages)):
+                    new_doc.insert_pdf(self.pdf_document, from_page=page - 1, to_page=page - 1)
+                new_doc.save(output_path)
+                saved_count += 1
+            except Exception as exc:
+                failed_files.append(f"{os.path.basename(output_path)} ({exc})")
 
-        self.show_notice_popup("Specs Saved", f"Saved {len(groups)} grouped spec PDF(s).")
+        if failed_files:
+            detail = "\n".join(failed_files[:4])
+            if len(failed_files) > 4:
+                detail += f"\n...and {len(failed_files) - 4} more."
+            self.show_notice_popup(
+                "Specs Saved with Warnings",
+                f"Saved {saved_count} grouped spec PDF(s).\nFailed to save {len(failed_files)} file(s):\n{detail}",
+            )
+        else:
+            self.show_notice_popup("Specs Saved", f"Saved {saved_count} grouped spec PDF(s).")
 
     def sanitize_filename(self, filename):
         sanitized = re.sub(r'[<>:"/\\|?*]', '_', filename).strip()
         return re.sub(r'\s+', '_', sanitized)
+
+    def build_safe_output_path(self, output_dir, safe_number, safe_name):
+        base_name = f"{safe_number} - {safe_name}".strip(" -")
+        if not base_name:
+            base_name = "UNTITLED_SPEC"
+
+        max_name_length = 180
+        if len(base_name) > max_name_length:
+            base_name = base_name[:max_name_length].rstrip(" ._-")
+
+        output_path = os.path.join(output_dir, f"{base_name}.pdf")
+        max_path_length = 245
+        if len(output_path) > max_path_length:
+            overflow = len(output_path) - max_path_length
+            trimmed_name_len = max(40, len(base_name) - overflow - 1)
+            base_name = base_name[:trimmed_name_len].rstrip(" ._-")
+            output_path = os.path.join(output_dir, f"{base_name}.pdf")
+
+        return output_path
 
     def save_page_as_pdf(self, page_number, output_path):
         new_doc = fitz.open()
