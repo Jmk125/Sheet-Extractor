@@ -416,10 +416,24 @@ class PDFExtractorApp:
         self.spec_missing_pages = missing_pages
 
     def normalize_spec_number(self, raw_text):
-        compact = re.sub(r"\s+", "", (raw_text or ""))
+        text = (raw_text or "").upper()
+        text = re.sub(r"[–—−]", "-", text)
+        text = re.sub(r"(?<=\d)\s*[-_.]\s*\d{1,3}\b", "", text)
+
+        # Light OCR correction for spec-number regions.
+        text = re.sub(r"(?<=\d)[O](?=\d)", "0", text)
+        text = re.sub(r"(?<!\d)[O](?=\d{5}\b)", "0", text)
+        text = re.sub(r"(?<=\d)[IL](?=\d)", "1", text)
+
+        spaced_match = re.search(r"(?<!\d)(\d(?:\s*\d){5})(?!\d)", text)
+        if spaced_match:
+            return re.sub(r"\s+", "", spaced_match.group(1))
+
+        compact = re.sub(r"\s+", "", text)
         match = re.search(r"(\d{6})", compact)
         if match:
             return match.group(1)
+
         return (raw_text or "").strip()
 
     def show_sheet_selection(self):
