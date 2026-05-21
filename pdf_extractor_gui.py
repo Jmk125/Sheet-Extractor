@@ -24,6 +24,7 @@ class PDFExtractorApp:
         self.pending_number_box = None
         self.retry_indices = []
         self.active_retry_indices = []
+        self.scan_start_page = 1
 
         self.h_line = None
         self.v_line = None
@@ -73,6 +74,18 @@ class PDFExtractorApp:
             pady=8,
         )
         self.next_button.pack(side=tk.LEFT)
+
+        self.prev_button = Button(
+            self.button_frame,
+            text="Previous Page",
+            command=self.previous_page,
+            bg="#e5e7eb",
+            fg="#111827",
+            relief=tk.FLAT,
+            padx=14,
+            pady=8,
+        )
+        self.prev_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self.status_label = Label(
             root,
@@ -206,6 +219,7 @@ class PDFExtractorApp:
             self.rect_coords_number = None
             self.rect_coords_title = None
             self.draw_phase = "number"
+            self.scan_start_page = 1
             self.load_first_page()
             if self.extraction_mode == "specs":
                 self.set_status("Go to the first technical spec sheet, then draw a box around the spec number")
@@ -215,6 +229,11 @@ class PDFExtractorApp:
     def next_drawing(self):
         if self.pdf_document and self.page_number < len(self.pdf_document):
             self.page_number += 1
+            self.display_page(self.page_number - 1)
+
+    def previous_page(self):
+        if self.pdf_document and self.page_number > 1:
+            self.page_number -= 1
             self.display_page(self.page_number - 1)
 
     def load_first_page(self):
@@ -256,6 +275,8 @@ class PDFExtractorApp:
         new_box = (self.start_x, self.start_y, end_x, end_y)
 
         if self.draw_phase == "number":
+            if not self.active_retry_indices:
+                self.scan_start_page = self.page_number
             self.pending_number_box = new_box
             scaled_rect_coords = [coord / self.scale_factor for coord in new_box]
             extracted_text_number = self.extract_text_from_box(self.page_number, scaled_rect_coords)
@@ -348,7 +369,8 @@ class PDFExtractorApp:
 
     def process_all_pages(self):
         self.sheet_numbers_titles = []
-        for page_num in range(1, self.pdf_document.page_count + 1):
+        start_page = self.scan_start_page if self.extraction_mode == "specs" else 1
+        for page_num in range(start_page, self.pdf_document.page_count + 1):
             scaled_rect_coords_number = [coord / self.scale_factor for coord in self.rect_coords_number]
             text_number = self.extract_text_from_box(page_num, scaled_rect_coords_number)
             if self.rect_coords_title:
@@ -358,8 +380,23 @@ class PDFExtractorApp:
                 text_title = ""
             self.sheet_numbers_titles.append((page_num, text_number, text_title))
 
-        self.show_sheet_selection()
+        if self.extraction_mode == "specs":
+            self.build_specs_summary()
+            self.show_specs_selection()
+        else:
+            self.show_sheet_selection()
         self.set_status("Review results. You can retry checked rows with new boxes.")
+
+    def build_specs_summary(self):
+        grouped_specs = {}
+        for page_num, text_number, text_title in self.sheet_numbers_titles:
+            spec_number = text_number.strip()
+            spec_name = text_title.strip()
+            if not spec_number and not spec_name:
+                continue
+            key = (spec_number, spec_name)
+            grouped_specs.setdefault(key, []).append(page_num)
+        self.spec_groups = grouped_specs
 
     def show_sheet_selection(self):
         if hasattr(self, "selection_window") and self.selection_window.winfo_exists():
@@ -446,6 +483,62 @@ class PDFExtractorApp:
                 command=lambda: self.save_sheets(True),
                 primary=True,
             ).pack(side=tk.LEFT, padx=5)
+
+    def show_specs_selection(self):
+        if hasattr(self, "selection_window") and self.selection_window.winfo_exists():
+            self.selection_window.destroy()
+
+        selection_window = Toplevel(self.root)
+        selection_window.title("Select Specs to Extract")
+        selection_window.geometry("900x620")
+        selection_window.configure(bg="#f3f6fb")
+        self.selection_window = selection_window
+
+        toolbar_frame = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
+        toolbar_frame.pack(side=tk.TOP, pady=(10, 6), padx=10, fill=tk.X)
+        Label(toolbar_frame, text="Review extracted specs", bg="#ffffff", fg="#0f172a", font=("Segoe UI", 12, "bold")).pack(side=tk.LEFT, padx=(0, 14))
+
+        button_frame_top = Frame(toolbar_frame, bg="#ffffff")
+        button_frame_top.pack(side=tk.LEFT)
+        self._styled_panel_button(button_frame_top, "Check All", self.check_all).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(button_frame_top, "Uncheck All", self.uncheck_all).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(button_frame_top, "Preview Checked", self.preview_checked_pages).pack(side=tk.LEFT, padx=4)
+
+        checklist_frame = Frame(selection_window, bg="#ffffff", bd=1, relief=tk.SOLID)
+        checklist_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+        self.checklist_canvas = Canvas(checklist_frame, bg="#ffffff", highlightthickness=0)
+        self.checklist_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar = Scrollbar(checklist_frame, orient=tk.VERTICAL, command=self.checklist_canvas.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.checklist_canvas.config(yscrollcommand=scrollbar.set)
+        checklist_inner_frame = Frame(self.checklist_canvas, bg="#ffffff")
+        self.checklist_canvas.create_window((0, 0), window=checklist_inner_frame, anchor=tk.NW)
+        checklist_inner_frame.bind("<Configure>", lambda e: self.checklist_canvas.config(scrollregion=self.checklist_canvas.bbox(tk.ALL)))
+
+        self.check_vars = []
+        self.spec_entries_number = []
+        self.spec_entries_title = []
+        self.spec_group_items = list(self.spec_groups.items())
+
+        for (spec_number, spec_name), pages in self.spec_group_items:
+            var = IntVar(value=1)
+            frame = Frame(checklist_inner_frame, bg="#ffffff")
+            frame.pack(anchor=tk.W, fill=tk.X, pady=1)
+            Checkbutton(frame, variable=var, bg="#ffffff", activebackground="#ffffff").pack(side=tk.LEFT, padx=5)
+            self.check_vars.append(var)
+            Label(frame, text=f"{len(pages)} page(s)", width=12, anchor="w", bg="#ffffff", fg="#334155").pack(side=tk.LEFT, padx=(0, 4))
+            entry_number = Entry(frame, width=20)
+            entry_number.pack(side=tk.LEFT, padx=5)
+            entry_number.insert(0, spec_number)
+            self.spec_entries_number.append(entry_number)
+            entry_title = Entry(frame)
+            entry_title.pack(side=tk.LEFT, padx=5, fill=tk.X, expand=True)
+            entry_title.insert(0, spec_name)
+            self.spec_entries_title.append(entry_title)
+
+        button_frame_bottom = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
+        button_frame_bottom.pack(side=tk.BOTTOM, pady=(0, 10), padx=10, fill=tk.X)
+        self._styled_panel_button(button_frame_bottom, "Save Specs by Number + Name", self.save_specs_grouped, width=32, primary=True).pack(side=tk.LEFT, padx=5)
 
     def start_retry_for_checked(self):
         self.retry_indices = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
@@ -543,7 +636,10 @@ class PDFExtractorApp:
         if not checked:
             self.show_notice_popup("No Rows Selected", "Check at least one row to preview.")
             return
-        first_page = self.sheet_numbers_titles[checked[0]][0]
+        if self.extraction_mode == "specs":
+            first_page = self.spec_group_items[checked[0]][1][0]
+        else:
+            first_page = self.sheet_numbers_titles[checked[0]][0]
         self.page_number = first_page
         self.display_page(first_page - 1)
         self.set_status(f"Previewing first checked page: {first_page}")
@@ -559,13 +655,12 @@ class PDFExtractorApp:
 
         groups = {}
         for index in selected:
-            page_num, _, _ = self.sheet_numbers_titles[index]
-            spec_number = self.entries_number[index].get().strip()
-            spec_name = self.entries_title[index].get().strip()
+            (_, _), pages = self.spec_group_items[index]
+            spec_number = self.spec_entries_number[index].get().strip()
+            spec_name = self.spec_entries_title[index].get().strip()
             if not spec_number and not spec_name:
                 continue
-            key = (spec_number, spec_name)
-            groups.setdefault(key, []).append(page_num)
+            groups[(spec_number, spec_name)] = pages
 
         if not groups:
             self.show_notice_popup("Nothing to Save", "No valid spec number/name pairs were selected.")
