@@ -65,7 +65,7 @@ class PDFExtractorApp:
 
         self.prev_button = Button(
             self.button_frame,
-            text="Previous Page",
+            text="Previous Drawing",
             command=self.previous_page,
             bg="#e5e7eb",
             fg="#111827",
@@ -86,18 +86,6 @@ class PDFExtractorApp:
             pady=8,
         )
         self.next_button.pack(side=tk.LEFT, padx=(8, 0))
-
-        self.prev_button = Button(
-            self.button_frame,
-            text="Previous Page",
-            command=self.previous_page,
-            bg="#e5e7eb",
-            fg="#111827",
-            relief=tk.FLAT,
-            padx=14,
-            pady=8,
-        )
-        self.prev_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self.status_label = Label(
             root,
@@ -216,11 +204,13 @@ class PDFExtractorApp:
         if self.extraction_mode == "drawings":
             self.extraction_mode = "specs"
             self.mode_button.config(text="Mode: Specs")
+            self.prev_button.config(text="Previous Page")
             self.next_button.config(text="Next Page")
             self.set_status("Specs mode enabled. Upload a large specs PDF to begin.")
         else:
             self.extraction_mode = "drawings"
             self.mode_button.config(text="Mode: Drawings")
+            self.prev_button.config(text="Previous Drawing")
             self.next_button.config(text="Next Drawing")
             self.set_status("Drawings mode enabled. Upload a PDF to begin.")
 
@@ -409,14 +399,24 @@ class PDFExtractorApp:
 
     def build_specs_summary(self):
         grouped_specs = {}
+        missing_pages = []
         for page_num, text_number, text_title in self.sheet_numbers_titles:
-            spec_number = text_number.strip()
+            spec_number = self.normalize_spec_number(text_number)
             spec_name = text_title.strip()
             if not spec_number and not spec_name:
+                missing_pages.append(page_num)
                 continue
             key = (spec_number, spec_name)
             grouped_specs.setdefault(key, []).append(page_num)
         self.spec_groups = grouped_specs
+        self.spec_missing_pages = missing_pages
+
+    def normalize_spec_number(self, raw_text):
+        compact = re.sub(r"\s+", "", (raw_text or ""))
+        match = re.search(r"(\d{6})", compact)
+        if match:
+            return match.group(1)
+        return (raw_text or "").strip()
 
     def show_sheet_selection(self):
         if hasattr(self, "selection_window") and self.selection_window.winfo_exists():
@@ -556,6 +556,20 @@ class PDFExtractorApp:
             entry_title.insert(0, spec_name)
             self.spec_entries_title.append(entry_title)
 
+        if self.spec_missing_pages:
+            missing_frame = Frame(selection_window, bg="#fff7ed", bd=1, relief=tk.SOLID, padx=10, pady=8)
+            missing_frame.pack(fill=tk.X, padx=10, pady=(0, 8))
+            Label(missing_frame, text="Pages with missing spec number and/or name", bg="#fff7ed", fg="#9a3412", font=("Segoe UI", 10, "bold")).pack(anchor="w")
+            checks_wrap = Frame(missing_frame, bg="#fff7ed")
+            checks_wrap.pack(anchor="w", pady=(6, 4))
+            self.missing_retry_vars = []
+            self.missing_retry_pages = self.spec_missing_pages[:]
+            for page_num in self.missing_retry_pages:
+                var = IntVar()
+                Checkbutton(checks_wrap, text=f"Pg {page_num}", variable=var, bg="#fff7ed", activebackground="#fff7ed").pack(side=tk.LEFT, padx=(0, 10))
+                self.missing_retry_vars.append(var)
+            self._styled_panel_button(missing_frame, "Retry Checked Missing Pages", self.start_retry_missing_specs, primary=True).pack(anchor="w", pady=(4, 0))
+
         button_frame_bottom = Frame(selection_window, bg="#ffffff", padx=12, pady=10)
         button_frame_bottom.pack(side=tk.BOTTOM, pady=(0, 10), padx=10, fill=tk.X)
         self._styled_panel_button(button_frame_bottom, "Save Specs by Number + Name", self.save_specs_grouped, width=32, primary=True).pack(side=tk.LEFT, padx=5)
@@ -574,6 +588,27 @@ class PDFExtractorApp:
         self.draw_phase = "number"
         self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the sheet number")
         self.show_notice_popup("Retry Checked Rows", "Draw number box, confirm, then draw title box. New boxes will be applied to all checked rows.")
+
+    def start_retry_missing_specs(self):
+        if not hasattr(self, "missing_retry_vars"):
+            return
+        selected_pages = [self.missing_retry_pages[i] for i, var in enumerate(self.missing_retry_vars) if var.get() == 1]
+        if not selected_pages:
+            self.show_notice_popup("No Pages Selected", "Check one or more missing pages to retry.")
+            return
+        page_to_index = {page_num: idx for idx, (page_num, _, _) in enumerate(self.sheet_numbers_titles)}
+        self.active_retry_indices = [page_to_index[p] for p in selected_pages if p in page_to_index]
+        if not self.active_retry_indices:
+            self.show_notice_popup("Retry Error", "Could not map missing pages for retry.")
+            return
+        first_page = min(selected_pages)
+        self.page_number = first_page
+        self.display_page(first_page - 1)
+        self.pending_number_box = None
+        self.rect_coords_title = None
+        self.draw_phase = "number"
+        self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the spec number")
+        self.show_notice_popup("Retry Missing Pages", "Draw number box, confirm, then draw name box. New boxes will be applied to selected missing pages.")
 
     def apply_retry_to_checked_rows(self):
         if not self.active_retry_indices:
