@@ -576,6 +576,7 @@ class PDFExtractorApp:
         button_frame_top.pack(side=tk.LEFT)
         self._styled_panel_button(button_frame_top, "Check All", self.check_all).pack(side=tk.LEFT, padx=4)
         self._styled_panel_button(button_frame_top, "Uncheck All", self.uncheck_all).pack(side=tk.LEFT, padx=4)
+        self._styled_panel_button(button_frame_top, "Check All Missing", self.check_all_missing).pack(side=tk.LEFT, padx=4)
         self._styled_panel_button(button_frame_top, "Preview Checked", self.preview_checked_pages).pack(side=tk.LEFT, padx=4)
         self._styled_panel_button(button_frame_top, "Retry Checked Pages", self.start_retry_for_checked, primary=True).pack(side=tk.LEFT, padx=4)
 
@@ -631,7 +632,10 @@ class PDFExtractorApp:
 
     def start_retry_for_checked(self):
         checked = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
-        if not checked:
+        missing_checked_pages = []
+        if self.extraction_mode == "specs" and hasattr(self, "missing_retry_vars"):
+            missing_checked_pages = [self.missing_retry_pages[i] for i, var in enumerate(self.missing_retry_vars) if var.get() == 1]
+        if not checked and not missing_checked_pages:
             self.show_notice_popup("No Rows Selected", "Check one or more rows to retry.")
             return
 
@@ -647,6 +651,7 @@ class PDFExtractorApp:
                     missing_offset = checked_index - grouped_count
                     if 0 <= missing_offset < len(self.missing_retry_pages):
                         retry_pages.append(self.missing_retry_pages[missing_offset])
+            retry_pages.extend(missing_checked_pages)
             retry_pages = sorted(set(retry_pages))
             self.active_retry_indices = [page_to_index[p] for p in retry_pages if p in page_to_index]
             if not self.active_retry_indices:
@@ -666,27 +671,6 @@ class PDFExtractorApp:
         prompt_label = "spec number" if self.extraction_mode == "specs" else "sheet number"
         self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the {prompt_label}")
         self.show_notice_popup("Retry Checked Rows", "Draw number box, confirm, then draw title/name box. New boxes will be applied to all checked pages.")
-
-    def start_retry_missing_specs(self):
-        if not hasattr(self, "missing_retry_vars"):
-            return
-        selected_pages = [self.missing_retry_pages[i] for i, var in enumerate(self.missing_retry_vars) if var.get() == 1]
-        if not selected_pages:
-            self.show_notice_popup("No Pages Selected", "Check one or more missing pages to retry.")
-            return
-        page_to_index = {page_num: idx for idx, (page_num, _, _) in enumerate(self.sheet_numbers_titles)}
-        self.active_retry_indices = [page_to_index[p] for p in selected_pages if p in page_to_index]
-        if not self.active_retry_indices:
-            self.show_notice_popup("Retry Error", "Could not map missing pages for retry.")
-            return
-        first_page = min(selected_pages)
-        self.page_number = first_page
-        self.display_page(first_page - 1)
-        self.pending_number_box = None
-        self.rect_coords_title = None
-        self.draw_phase = "number"
-        self.set_status(f"Retry mode: jumped to page {first_page}. Draw a box around the spec number")
-        self.show_notice_popup("Retry Missing Pages", "Draw number box, confirm, then draw name box. New boxes will be applied to selected missing pages.")
 
     def start_retry_missing_specs(self):
         if not hasattr(self, "missing_retry_vars"):
@@ -751,10 +735,23 @@ class PDFExtractorApp:
     def check_all(self):
         for var in self.check_vars:
             var.set(1)
+        if hasattr(self, "missing_retry_vars"):
+            for var in self.missing_retry_vars:
+                var.set(1)
 
     def uncheck_all(self):
         for var in self.check_vars:
             var.set(0)
+        if hasattr(self, "missing_retry_vars"):
+            for var in self.missing_retry_vars:
+                var.set(0)
+
+    def check_all_missing(self):
+        if not hasattr(self, "missing_retry_vars") or not self.missing_retry_vars:
+            self.show_notice_popup("No Missing Pages", "There are no missing pages in this run.")
+            return
+        for var in self.missing_retry_vars:
+            var.set(1)
 
     def check_drawings_by_letter(self, letter):
         for i, entry_number in enumerate(self.entries_number):
@@ -787,12 +784,19 @@ class PDFExtractorApp:
 
     def preview_checked_pages(self):
         checked = [i for i, var in enumerate(self.check_vars) if var.get() == 1]
-        if not checked:
+        missing_checked_pages = []
+        if self.extraction_mode == "specs" and hasattr(self, "missing_retry_vars"):
+            missing_checked_pages = [self.missing_retry_pages[i] for i, var in enumerate(self.missing_retry_vars) if var.get() == 1]
+
+        if not checked and not missing_checked_pages:
             self.show_notice_popup("No Rows Selected", "Check at least one row to preview.")
             return
         if self.extraction_mode == "specs":
-            _, group_data = self.spec_group_items[checked[0]]
-            first_page = group_data["pages"][0]
+            if checked:
+                _, group_data = self.spec_group_items[checked[0]]
+                first_page = group_data["pages"][0]
+            else:
+                first_page = missing_checked_pages[0]
         else:
             first_page = self.sheet_numbers_titles[checked[0]][0]
         self.page_number = first_page
